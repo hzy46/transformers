@@ -71,7 +71,9 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torc
         dtype (`torch.dtype`, *optional*, default=`torch.bfloat16`):
             dtype of the output tensor
     """
-    batch_size, seq_length = attention_mask.shape
+    batch_size = attention_mask.shape[0]
+    seq_length = attention_mask.shape[-1]
+    standard_attention_mask = torch.ones((batch_size, seq_length), device=attention_mask.device, dtype=attention_mask.dtype)
     closest_power_of_2 = 2 ** math.floor(math.log2(num_heads))
     base = torch.tensor(
         2 ** (-(2 ** -(math.log2(closest_power_of_2) - 3))), device=attention_mask.device, dtype=torch.float32
@@ -93,7 +95,7 @@ def build_alibi_tensor(attention_mask: torch.Tensor, num_heads: int, dtype: torc
     # => the query_length dimension will then be broadcasted correctly
     # This is more or less identical to T5's relative position bias:
     # https://github.com/huggingface/transformers/blob/f681437203baa7671de3174b0fa583c349d9d5e1/src/transformers/models/t5/modeling_t5.py#L527
-    arange_tensor = ((attention_mask.cumsum(dim=-1) - 1) * attention_mask)[:, None, :]
+    arange_tensor = ((standard_attention_mask.cumsum(dim=-1) - 1) * standard_attention_mask)[:, None, :]
     alibi = slopes[..., None] * arange_tensor
     return alibi.reshape(batch_size * num_heads, 1, seq_length).to(dtype)
 
