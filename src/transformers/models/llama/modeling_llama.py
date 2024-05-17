@@ -142,7 +142,7 @@ class LlamaRotaryEmbedding(nn.Module):
             emb = torch.cat((freqs, freqs), dim=-1)
             cos = emb.cos()
             sin = emb.sin()
-        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
+        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype), freqs
 
 
 class LlamaLinearScalingRotaryEmbedding(LlamaRotaryEmbedding):
@@ -362,9 +362,10 @@ class LlamaAttention(nn.Module):
         self.debug_info["origin_v"] = value_states
 
         past_key_value = getattr(self, "past_key_value", past_key_value)
-        cos, sin = self.rotary_emb(value_states, position_ids)
+        cos, sin, freqs = self.rotary_emb(value_states, position_ids)
         self.debug_info["cos"] = cos
         self.debug_info["sin"] = sin
+        self.debug_info["freqs"] = freqs
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
         self.debug_info["rope_q"] = query_states
         self.debug_info["rope_k"] = key_states
