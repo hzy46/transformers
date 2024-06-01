@@ -201,7 +201,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, mas
     Returns:
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
     """
-    if masked_head_complex_dimensions is None:
+    if masked_head_complex_dimensions is None or len(masked_head_complex_dimensions) == 0:
         cos = cos.unsqueeze(unsqueeze_dim)
         sin = sin.unsqueeze(unsqueeze_dim)
     else:
