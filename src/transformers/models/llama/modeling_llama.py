@@ -213,8 +213,8 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, mas
         sin = torch.unsqueeze(sin, axis=1).repeat(1, head_num, 1, 1)
         # 进行 mask
         for head_idx, complex_dimension in masked_head_complex_dimensions:
-            cos[:, head_idx, :, complex_dimension] = 0.
-            cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
+            cos[:, head_idx, :, complex_dimension] = 1.
+            cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 1.
             sin[:, head_idx, :, complex_dimension] = 0.
             sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
     q_embed = (q * cos) + (rotate_half(q) * sin)
