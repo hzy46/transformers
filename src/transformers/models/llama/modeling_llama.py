@@ -970,9 +970,9 @@ class LlamaModel(LlamaPreTrainedModel):
         layer_idx_to_masked_head_complex_dimensions = defaultdict(list)
         df = pd.read_csv(info_df_path)
         for _, row in df.iterrows():
-            layer_idx = row.layer_idx
-            head_idx = row.head_idx
-            complex_dimension = row.x
+            layer_idx = int(row.layer_idx)
+            head_idx = int(row.head_idx)
+            complex_dimension = int(row.x)
             layer_idx_to_masked_head_complex_dimensions[layer_idx].append((head_idx, complex_dimension))
         for layer_idx, masked_head_complex_dimensions in layer_idx_to_masked_head_complex_dimensions.items():
             print(f"masked: layer {layer_idx} masked_head_complex_dimensions: {masked_head_complex_dimensions}")
