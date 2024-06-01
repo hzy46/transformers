@@ -181,7 +181,7 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, masked_head_complex_dimensions=None):
     """Applies Rotary Position Embedding to the query and key tensors.
 
     Args:
@@ -201,8 +201,22 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
     Returns:
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
     """
-    cos = cos.unsqueeze(unsqueeze_dim)
-    sin = sin.unsqueeze(unsqueeze_dim)
+    if masked_head_complex_dimensions is None:
+        cos = cos.unsqueeze(unsqueeze_dim)
+        sin = sin.unsqueeze(unsqueeze_dim)
+    else:
+        assert unsqueeze_dim == 1
+        head_num = q.shape[1]
+        size_per_head = cos.shape[-1]
+        # 经过下面的后，都是[batch_size, head_num, seq_len, size_per_head]
+        cos = torch.unsqueeze(cos, axis=1).repeat(1, head_num, 1, 1)
+        sin = torch.unsqueeze(sin, axis=1).repeat(1, head_num, 1, 1)
+        # 进行 mask
+        for head_idx, complex_dimension in masked_head_complex_dimensions:
+            cos[:, head_idx, :, complex_dimension] = 1.
+            cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 1.
+            sin[:, head_idx, :, complex_dimension] = 0.
+            sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
@@ -291,6 +305,10 @@ class LlamaAttention(nn.Module):
         self._init_rope()
 
         self.debug_info = {}
+        self.masked_head_complex_dimensions = None
+
+    def set_masked_head_complex_dimensions(self, masked_head_complex_dimensions):
+        self.masked_head_complex_dimensions = masked_head_complex_dimensions
 
     def _init_rope(self):
         if self.config.rope_scaling is None:
@@ -366,7 +384,7 @@ class LlamaAttention(nn.Module):
         self.debug_info["cos"] = cos
         self.debug_info["sin"] = sin
         self.debug_info["freqs"] = freqs
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, masked_head_complex_dimensions=self.masked_head_complex_dimensions)
         self.debug_info["rope_q"] = query_states
         self.debug_info["rope_k"] = key_states
 
@@ -944,6 +962,21 @@ class LlamaModel(LlamaPreTrainedModel):
 
         # Initialize weights and apply final processing
         self.post_init()
+
+    def set_all_layer_masked_head_complex_dimensions(self, info_df_path):
+        import pandas as pd
+        from collections import defaultdict
+        print(f"Will read mask info from {info_df_path}")
+        layer_idx_to_masked_head_complex_dimensions = defaultdict(list)
+        df = pd.read_csv(info_df_path)
+        for _, row in df.iterrows():
+            layer_idx = row.layer_idx
+            head_idx = row.head_idx
+            complex_dimension = row.x
+            layer_idx_to_masked_head_complex_dimensions[layer_idx].append((head_idx, complex_dimension))
+        for layer_idx, masked_head_complex_dimensions in layer_idx_to_masked_head_complex_dimensions.items():
+            print(f"masked: layer {layer_idx} masked_head_complex_dimensions: {masked_head_complex_dimensions}")
+            self.layers[layer_idx].self_attn.set_masked_head_complex_dimensions(masked_head_complex_dimensions)
 
     def get_input_embeddings(self):
         return self.embed_tokens
