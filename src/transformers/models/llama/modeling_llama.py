@@ -963,18 +963,16 @@ class LlamaModel(LlamaPreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
-    def set_all_layer_masked_head_complex_dimensions(self, info_df_path):
-        import pandas as pd
+    def set_all_layer_masked_head_complex_dimensions(self, df):
         from collections import defaultdict
-        print(f"Will read mask info from {info_df_path}")
         layer_idx_to_masked_head_complex_dimensions = defaultdict(list)
-        df = pd.read_csv(info_df_path)
         for _, row in df.iterrows():
             layer_idx = int(row.layer_idx)
             head_idx = int(row.head_idx)
             complex_dimension = int(row.x)
             layer_idx_to_masked_head_complex_dimensions[layer_idx].append((head_idx, complex_dimension))
-        for layer_idx, masked_head_complex_dimensions in layer_idx_to_masked_head_complex_dimensions.items():
+        for layer_idx in range(len(self.layers)):
+            masked_head_complex_dimensions = layer_idx_to_masked_head_complex_dimensions[layer_idx]
             print(f"masked: layer {layer_idx} masked_head_complex_dimensions: {masked_head_complex_dimensions}")
             self.layers[layer_idx].self_attn.set_masked_head_complex_dimensions(masked_head_complex_dimensions)
 
