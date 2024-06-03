@@ -457,6 +457,15 @@ class LlamaFlashAttention2(LlamaAttention):
         # flash_attn<2.1 generates top-left aligned causal mask, while what is needed here is bottom-right alignement, that was made default for flash_attn>=2.1. This attribute is used to handle this difference. Reference: https://github.com/Dao-AILab/flash-attention/releases/tag/v2.1.0.
         # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
+        self.masked_head_complex_dimensions = None
+        self.debug_info = {}
+        self.is_collect_debug_info = True
+
+    def set_masked_head_complex_dimensions(self, masked_head_complex_dimensions):
+        self.masked_head_complex_dimensions = masked_head_complex_dimensions
+
+    def set_is_collect_debug_info(self, is_collect_debug_info):
+        self.is_collect_debug_info = is_collect_debug_info
 
     def forward(
         self,
@@ -483,9 +492,19 @@ class LlamaFlashAttention2(LlamaAttention):
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
+        if self.is_collect_debug_info:
+            self.debug_info["origin_q"] = query_states
+            self.debug_info["origin_k"] = key_states
+            self.debug_info["origin_v"] = value_states
 
         cos, sin = self.rotary_emb(value_states, position_ids)
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
+        if self.is_collect_debug_info:
+            self.debug_info["cos"] = cos
+            self.debug_info["sin"] = sin
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, masked_head_complex_dimensions=self.masked_head_complex_dimensions)
+        if self.is_collect_debug_info:
+            self.debug_info["rope_q"] = query_states
+            self.debug_info["rope_k"] = key_states
 
         past_key_value = getattr(self, "past_key_value", past_key_value)
 
