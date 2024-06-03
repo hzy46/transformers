@@ -973,7 +973,7 @@ class LlamaModel(LlamaPreTrainedModel):
             layer_idx_to_masked_head_complex_dimensions[layer_idx].append((head_idx, complex_dimension))
         for layer_idx in range(len(self.layers)):
             masked_head_complex_dimensions = layer_idx_to_masked_head_complex_dimensions[layer_idx]
-            print(f"masked: layer {layer_idx} masked_head_complex_dimensions: {masked_head_complex_dimensions}")
+            # print(f"masked: layer {layer_idx} masked_head_complex_dimensions: {masked_head_complex_dimensions}")
             self.layers[layer_idx].self_attn.set_masked_head_complex_dimensions(masked_head_complex_dimensions)
 
     def get_input_embeddings(self):
