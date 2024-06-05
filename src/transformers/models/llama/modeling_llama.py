@@ -497,7 +497,7 @@ class LlamaFlashAttention2(LlamaAttention):
             self.debug_info["origin_k"] = key_states
             self.debug_info["origin_v"] = value_states
 
-        cos, sin = self.rotary_emb(value_states, position_ids)
+        cos, sin, _ = self.rotary_emb(value_states, position_ids)
         if self.is_collect_debug_info:
             self.debug_info["cos"] = cos
             self.debug_info["sin"] = sin
