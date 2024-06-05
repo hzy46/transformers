@@ -493,18 +493,18 @@ class LlamaFlashAttention2(LlamaAttention):
         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         if self.is_collect_debug_info:
-            self.debug_info["origin_q"] = query_states
-            self.debug_info["origin_k"] = key_states
-            self.debug_info["origin_v"] = value_states
+            self.debug_info["origin_q"] = query_states.detach().cpu()
+            self.debug_info["origin_k"] = key_states.detach().cpu()
+            self.debug_info["origin_v"] = value_states.detach().cpu()
 
         cos, sin, _ = self.rotary_emb(value_states, position_ids)
         if self.is_collect_debug_info:
-            self.debug_info["cos"] = cos
-            self.debug_info["sin"] = sin
+            self.debug_info["cos"] = cos.detach().cpu()
+            self.debug_info["sin"] = sin.detach().cpu()
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, masked_head_complex_dimensions=self.masked_head_complex_dimensions)
         if self.is_collect_debug_info:
-            self.debug_info["rope_q"] = query_states
-            self.debug_info["rope_k"] = key_states
+            self.debug_info["rope_q"] = query_states.detach().cpu()
+            self.debug_info["rope_k"] = key_states.detach().cpu()
 
         past_key_value = getattr(self, "past_key_value", past_key_value)
 
