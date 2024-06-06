@@ -391,14 +391,15 @@ class LlamaAttention(nn.Module):
             self.debug_info["sin"] = sin
             self.debug_info["freqs"] = freqs
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, masked_head_complex_dimensions=self.masked_head_complex_dimensions)
-        if self.is_collect_debug_info:
-            self.debug_info["rope_q"] = query_states
-            self.debug_info["rope_k"] = key_states
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+        if self.is_collect_debug_info:
+            self.debug_info["rope_q"] = query_states
+            self.debug_info["rope_k"] = key_states
 
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
@@ -502,9 +503,6 @@ class LlamaFlashAttention2(LlamaAttention):
             self.debug_info["cos"] = cos.detach().cpu()
             self.debug_info["sin"] = sin.detach().cpu()
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, masked_head_complex_dimensions=self.masked_head_complex_dimensions)
-        if self.is_collect_debug_info:
-            self.debug_info["rope_q"] = query_states.detach().cpu()
-            self.debug_info["rope_k"] = key_states.detach().cpu()
 
         past_key_value = getattr(self, "past_key_value", past_key_value)
 
@@ -512,6 +510,11 @@ class LlamaFlashAttention2(LlamaAttention):
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+        
+        if self.is_collect_debug_info:
+            self.debug_info["rope_q"] = query_states.detach().cpu()
+            self.debug_info["rope_k"] = key_states.detach().cpu()
+
 
         # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
         # to be able to avoid many of these transpose/reshape/view.
