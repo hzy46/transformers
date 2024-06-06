@@ -1051,7 +1051,7 @@ class LlamaModel(LlamaPreTrainedModel):
             complex_dimension = int(row.x)
             layer_idx_to_cancel_rope_head_complex_dimensions[layer_idx].append((head_idx, complex_dimension))
         for layer_idx in range(len(self.layers)):
-            cancel_rope_head_complex_dimensions = layer_idx_to_masked_head_complex_dimensions[layer_idx]
+            cancel_rope_head_complex_dimensions = layer_idx_to_cancel_rope_head_complex_dimensions[layer_idx]
             self.layers[layer_idx].self_attn.set_cancel_rope_head_complex_dimensions(cancel_rope_head_complex_dimensions)
 
     def set_all_layer_is_collect_debug_info(self, is_collect_debug_info):
