@@ -181,7 +181,7 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, masked_head_complex_dimensions=None):
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, masked_head_complex_dimensions=None, cancel_rope_head_complex_dimensions=None):
     """Applies Rotary Position Embedding to the query and key tensors.
 
     Args:
@@ -201,10 +201,19 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, mas
     Returns:
         `tuple(torch.Tensor)` comprising of the query and key tensors rotated using the Rotary Position Embedding.
     """
-    if masked_head_complex_dimensions is None or len(masked_head_complex_dimensions) == 0:
+    if masked_head_complex_dimensions is not None and len(masked_head_complex_dimensions) > 0:
+        enable_mask = True
+    else:
+        enable_mask = False
+    if cancel_rope_head_complex_dimensions is not None and len(cancel_rope_head_complex_dimensions) > 0:
+        enable_cancel_rope = True
+    else:
+        enable_cancel_rope = False
+    assert not(enable_mask is True and enable_cancel_rope is True)
+    if enable_mask is False and enable_cancel_rope is False:
         cos = cos.unsqueeze(unsqueeze_dim)
         sin = sin.unsqueeze(unsqueeze_dim)
-    else:
+    elif enable_mask is True:
         assert unsqueeze_dim == 1
         head_num = q.shape[1]
         size_per_head = cos.shape[-1]
@@ -215,6 +224,19 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, mas
         for head_idx, complex_dimension in masked_head_complex_dimensions:
             cos[:, head_idx, :, complex_dimension] = 0.
             cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
+            sin[:, head_idx, :, complex_dimension] = 0.
+            sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
+    elif enable_cancel_rope is True:
+        assert unsqueeze_dim == 1
+        head_num = q.shape[1]
+        size_per_head = cos.shape[-1]
+        # 经过下面的后，都是[batch_size, head_num, seq_len, size_per_head]
+        cos = torch.unsqueeze(cos, axis=1).repeat(1, head_num, 1, 1)
+        sin = torch.unsqueeze(sin, axis=1).repeat(1, head_num, 1, 1)
+        # 进行 mask
+        for head_idx, complex_dimension in cancel_rope_head_complex_dimensions:
+            cos[:, head_idx, :, complex_dimension] = 1.
+            cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 1.
             sin[:, head_idx, :, complex_dimension] = 0.
             sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
     q_embed = (q * cos) + (rotate_half(q) * sin)
@@ -459,11 +481,15 @@ class LlamaFlashAttention2(LlamaAttention):
         # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
         self.masked_head_complex_dimensions = None
+        self.cancel_rope_head_complex_dimensions = None
         self.debug_info = {}
         self.is_collect_debug_info = True
 
     def set_masked_head_complex_dimensions(self, masked_head_complex_dimensions):
         self.masked_head_complex_dimensions = masked_head_complex_dimensions
+
+    def set_cancel_rope_head_complex_dimensions(self, cancel_rope_head_complex_dimensions):
+        self.cancel_rope_head_complex_dimensions = cancel_rope_head_complex_dimensions
 
     def set_is_collect_debug_info(self, is_collect_debug_info):
         self.is_collect_debug_info = is_collect_debug_info
@@ -502,7 +528,9 @@ class LlamaFlashAttention2(LlamaAttention):
         if self.is_collect_debug_info:
             self.debug_info["cos"] = cos.detach().cpu()
             self.debug_info["sin"] = sin.detach().cpu()
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, masked_head_complex_dimensions=self.masked_head_complex_dimensions)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin,
+            masked_head_complex_dimensions=self.masked_head_complex_dimensions, cancel_rope_head_complex_dimensions=self.cancel_rope_head_complex_dimensions
+        )
 
         past_key_value = getattr(self, "past_key_value", past_key_value)
 
@@ -995,6 +1023,12 @@ class LlamaModel(LlamaPreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
+    def reset_head_complex_dimensions(self):
+        import pandas as pd
+        self.set_all_layer_masked_head_complex_dimensions(pd.DataFrame([]))
+        self.set_all_layer_cancel_rope_head_complex_dimensions(pd.DataFrame([]))
+        print("reset!")
+
     def set_all_layer_masked_head_complex_dimensions(self, df):
         from collections import defaultdict
         layer_idx_to_masked_head_complex_dimensions = defaultdict(list)
@@ -1007,6 +1041,18 @@ class LlamaModel(LlamaPreTrainedModel):
             masked_head_complex_dimensions = layer_idx_to_masked_head_complex_dimensions[layer_idx]
             # print(f"masked: layer {layer_idx} masked_head_complex_dimensions: {masked_head_complex_dimensions}")
             self.layers[layer_idx].self_attn.set_masked_head_complex_dimensions(masked_head_complex_dimensions)
+
+    def set_all_layer_cancel_rope_head_complex_dimensions(self, df):
+        from collections import defaultdict
+        layer_idx_to_cancel_rope_head_complex_dimensions = defaultdict(list)
+        for _, row in df.iterrows():
+            layer_idx = int(row.layer_idx)
+            head_idx = int(row.head_idx)
+            complex_dimension = int(row.x)
+            layer_idx_to_cancel_rope_head_complex_dimensions[layer_idx].append((head_idx, complex_dimension))
+        for layer_idx in range(len(self.layers)):
+            cancel_rope_head_complex_dimensions = layer_idx_to_masked_head_complex_dimensions[layer_idx]
+            self.layers[layer_idx].self_attn.set_cancel_rope_head_complex_dimensions(cancel_rope_head_complex_dimensions)
 
     def set_all_layer_is_collect_debug_info(self, is_collect_debug_info):
         for layer_idx in range(len(self.layers)):
