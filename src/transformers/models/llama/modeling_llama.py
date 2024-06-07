@@ -151,7 +151,7 @@ class LlamaRotaryEmbedding(nn.Module):
             position_ids_expanded = position_ids[:, None, :].float()
             device_type = x.device.type
             device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
-            scale_factor_in_complex_dimensions = torch.Tensor(scale_factor_in_complex_dimensions, torch.float32).to(device)
+            scale_factor_in_complex_dimensions = torch.Tensor(scale_factor_in_complex_dimensions).to(device)
             with torch.autocast(device_type=device_type, enabled=False):
                 # [head_dim, dim // 2]
                 head_dim, _ = scale_factor_in_complex_dimensions.shape
@@ -1098,7 +1098,7 @@ class LlamaModel(LlamaPreTrainedModel):
                 # [head_num, size_per_head // 2]
                 scale_factor_in_complex_dimensions = np.ones((self.num_attention_heads, self.complex_dim), dtype=np.float32)
                 for head_idx, complex_dimension, scale_factor in scale_info:
-                    scale_factor_in_complex_dimensions[head_idx, complex_dimension] = scale_factor
+                    scale_factor_in_complex_dimensions[head_idx, complex_dimension] = float(scale_factor)
                 self.layers[layer_idx].self_attn.set_scale_factor_in_complex_dimensions(scale_factor_in_complex_dimensions)
 
     def set_all_layer_masked_head_complex_dimensions(self, df):
