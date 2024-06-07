@@ -169,9 +169,7 @@ class LlamaRotaryEmbedding(nn.Module):
                 # [1, head_dim, seq_len, dim // 2] 所有 位置统一缩放
                 scale_factor_in_complex_dimensions = scale_factor_in_complex_dimensions.repeat(1, 1, seq_len, 1)
                 # [batch_size, head_dim, seq_len, dim // 2]
-                print("freqs device", freqs.device)
-                print("scale_factor_in_complex_dimensions device", scale_factor_in_complex_dimensions.device)
-                freqs = freqs * scale_factor_in_complex_dimensions
+                freqs = freqs * scale_factor_in_complex_dimensions.to(freqs.device)
                 emb = torch.cat((freqs, freqs), dim=-1)
                 cos = emb.cos()
                 sin = emb.sin()
