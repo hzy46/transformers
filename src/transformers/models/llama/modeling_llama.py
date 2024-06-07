@@ -245,7 +245,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
         enable_scale_factor = True
     else:
         enable_scale_factor = False
-    assert sum([enable_mask, enable_scale_factor, enable_scale_factor]) <= 1
+    assert sum([enable_mask, enable_cancel_rope, enable_scale_factor]) <= 1
     if enable_mask is False and enable_cancel_rope is False and enable_scale_factor is False:
         cos = cos.unsqueeze(unsqueeze_dim)
         sin = sin.unsqueeze(unsqueeze_dim)
