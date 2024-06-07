@@ -1079,7 +1079,7 @@ class LlamaModel(LlamaPreTrainedModel):
         print("reset!")
 
     def set_all_layer_scale_factor_in_complex_dimensions(self, df):
-        rom collections import defaultdict
+        from collections import defaultdict
         layer_idx_to_scale_info = defaultdict(list)
         # df: (layer_idx, head_idx, x, scale_factor)
         # every layer scale_factor_in_complex_dimensions: [head_dim, size_per_head // 2]
