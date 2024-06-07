@@ -151,7 +151,7 @@ class LlamaRotaryEmbedding(nn.Module):
             position_ids_expanded = position_ids[:, None, :].float()
             device_type = x.device.type
             device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
-            scale_factor_in_complex_dimensions = torch.Tensor(scale_factor_in_complex_dimensions).to(device)
+            scale_factor_in_complex_dimensions = torch.Tensor(scale_factor_in_complex_dimensions).to(self.device)
             with torch.autocast(device_type=device_type, enabled=False):
                 # [head_dim, dim // 2]
                 head_dim, _ = scale_factor_in_complex_dimensions.shape
