@@ -111,6 +111,7 @@ class LlamaRotaryEmbedding(nn.Module):
         emb = torch.cat((freqs, freqs), dim=-1)
         self.register_buffer("_cos_cached", emb.cos().to(torch.get_default_dtype()), persistent=False)
         self.register_buffer("_sin_cached", emb.sin().to(torch.get_default_dtype()), persistent=False)
+        self.device = device
 
     @property
     def sin_cached(self):
@@ -129,20 +130,50 @@ class LlamaRotaryEmbedding(nn.Module):
         return self._cos_cached
 
     @torch.no_grad()
-    def forward(self, x, position_ids):
-        # x: [bs, num_attention_heads, seq_len, head_size]
-        inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
-        position_ids_expanded = position_ids[:, None, :].float()
-        # Force float32 since bfloat16 loses precision on long contexts
-        # See https://github.com/huggingface/transformers/pull/29285
-        device_type = x.device.type
-        device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
-        with torch.autocast(device_type=device_type, enabled=False):
-            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
-            emb = torch.cat((freqs, freqs), dim=-1)
-            cos = emb.cos()
-            sin = emb.sin()
-        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype), freqs
+    def forward(self, x, position_ids, scale_factor_in_complex_dimensions=None):
+        if scale_factor_in_complex_dimensions is None:
+            # x: [bs, num_attention_heads, seq_len, head_size]
+            inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+            position_ids_expanded = position_ids[:, None, :].float()
+            # Force float32 since bfloat16 loses precision on long contexts
+            # See https://github.com/huggingface/transformers/pull/29285
+            device_type = x.device.type
+            device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
+            with torch.autocast(device_type=device_type, enabled=False):
+                freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+                emb = torch.cat((freqs, freqs), dim=-1)
+                cos = emb.cos()
+                sin = emb.sin()
+            return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype), freqs
+        else:
+            # scale_factor_in_complex_dimensions: [head_dim, dim // 2] 实际 llama2_7b 是 (32, 64)
+            inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+            position_ids_expanded = position_ids[:, None, :].float()
+            device_type = x.device.type
+            device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
+            scale_factor_in_complex_dimensions = torch.Tensor(scale_factor_in_complex_dimensions, torch.float32).to(device)
+            with torch.autocast(device_type=device_type, enabled=False):
+                # [head_dim, dim // 2]
+                head_dim, _ = scale_factor_in_complex_dimensions.shape
+                # [batch_size, seq_len, dim // 2]
+                freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+                _, seq_len, _ = freqs.shape
+                # [batch_size, 1, seq_len, dim // 2]
+                freqs = torch.unsqueeze(freqs, dim=1)
+                # [batch_size, head_dim, seq_len, dim // 2]
+                freqs = freqs.repeat(1, head_dim, 1, 1)
+                # [1, head_dim, dim // 2]
+                scale_factor_in_complex_dimensions = torch.unsqueeze(scale_factor_in_complex_dimensions, dim=0)
+                # [1, head_dim, 1, dim // 2]
+                scale_factor_in_complex_dimensions = torch.unsqueeze(scale_factor_in_complex_dimensions, dim=2)
+                # [1, head_dim, seq_len, dim // 2] 所有 位置统一缩放
+                scale_factor_in_complex_dimensions = scale_factor_in_complex_dimensions.repeat(1, 1, seq_len, 1)
+                # [batch_size, head_dim, seq_len, dim // 2]
+                freqs = freqs * scale_factor_in_complex_dimensions
+                emb = torch.cat((freqs, freqs), dim=-1)
+                cos = emb.cos()
+                sin = emb.sin()
+            return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype), freqs
 
 
 class LlamaLinearScalingRotaryEmbedding(LlamaRotaryEmbedding):
@@ -181,7 +212,8 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, masked_head_complex_dimensions=None, cancel_rope_head_complex_dimensions=None):
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, 
+    masked_head_complex_dimensions=None, cancel_rope_head_complex_dimensions=None, scale_factor_in_complex_dimensions=None):
     """Applies Rotary Position Embedding to the query and key tensors.
 
     Args:
@@ -209,8 +241,12 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, mas
         enable_cancel_rope = True
     else:
         enable_cancel_rope = False
-    assert not(enable_mask is True and enable_cancel_rope is True)
-    if enable_mask is False and enable_cancel_rope is False:
+    if scale_factor_in_complex_dimensions is not None:
+        enable_scale_factor = True
+    else:
+        enable_scale_factor = False
+    assert sum([enable_mask, enable_scale_factor, enable_scale_factor]) <= 1
+    if enable_mask is False and enable_cancel_rope is False and enable_scale_factor is False:
         cos = cos.unsqueeze(unsqueeze_dim)
         sin = sin.unsqueeze(unsqueeze_dim)
     elif enable_mask is True:
@@ -239,6 +275,10 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, mas
             cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 1.
             sin[:, head_idx, :, complex_dimension] = 0.
             sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
+    elif enable_scale_factor is True:
+        assert unsqueeze_dim == 1
+        # 不需要 unsequeeze
+        pass
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
     return q_embed, k_embed
@@ -482,6 +522,7 @@ class LlamaFlashAttention2(LlamaAttention):
         self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
         self.masked_head_complex_dimensions = None
         self.cancel_rope_head_complex_dimensions = None
+        self.scale_factor_in_complex_dimensions = None
         self.debug_info = {}
         self.is_collect_debug_info = True
 
@@ -490,6 +531,9 @@ class LlamaFlashAttention2(LlamaAttention):
 
     def set_cancel_rope_head_complex_dimensions(self, cancel_rope_head_complex_dimensions):
         self.cancel_rope_head_complex_dimensions = cancel_rope_head_complex_dimensions
+
+    def set_scale_factor_in_complex_dimensions(self, scale_factor_in_complex_dimensions):
+        self.scale_factor_in_complex_dimensions = scale_factor_in_complex_dimensions
 
     def set_is_collect_debug_info(self, is_collect_debug_info):
         self.is_collect_debug_info = is_collect_debug_info
@@ -524,12 +568,13 @@ class LlamaFlashAttention2(LlamaAttention):
             self.debug_info["origin_k"] = key_states.detach().cpu()
             self.debug_info["origin_v"] = value_states.detach().cpu()
 
-        cos, sin, _ = self.rotary_emb(value_states, position_ids)
+        cos, sin, _ = self.rotary_emb(value_states, position_ids, scale_factor_in_complex_dimensions=self.scale_factor_in_complex_dimensions)
         if self.is_collect_debug_info:
             self.debug_info["cos"] = cos.detach().cpu()
             self.debug_info["sin"] = sin.detach().cpu()
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin,
-            masked_head_complex_dimensions=self.masked_head_complex_dimensions, cancel_rope_head_complex_dimensions=self.cancel_rope_head_complex_dimensions
+            masked_head_complex_dimensions=self.masked_head_complex_dimensions, cancel_rope_head_complex_dimensions=self.cancel_rope_head_complex_dimensions,
+            scale_factor_in_complex_dimensions=self.scale_factor_in_complex_dimensions,
         )
 
         past_key_value = getattr(self, "past_key_value", past_key_value)
@@ -1023,11 +1068,38 @@ class LlamaModel(LlamaPreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
+        self.complex_dim = int(config.hidden_size / config.num_attention_heads / 2)
+        self.num_attention_heads = config.num_attention_heads
+
     def reset_head_complex_dimensions(self):
         import pandas as pd
         self.set_all_layer_masked_head_complex_dimensions(pd.DataFrame([]))
         self.set_all_layer_cancel_rope_head_complex_dimensions(pd.DataFrame([]))
+        self.set_all_layer_scale_factor_in_complex_dimensions(pd.DataFrame([]))
         print("reset!")
+
+    def set_all_layer_scale_factor_in_complex_dimensions(self, df):
+        rom collections import defaultdict
+        layer_idx_to_scale_info = defaultdict(list)
+        # df: (layer_idx, head_idx, x, scale_factor)
+        # every layer scale_factor_in_complex_dimensions: [head_dim, size_per_head // 2]
+        for _, row in df.iterrows():
+            layer_idx = int(row.layer_idx)
+            head_idx = int(row.head_idx)
+            complex_dimension = int(row.x)
+            scale_factor = float(row.scale_factor)
+            layer_idx_to_scale_info[layer_idx].append((head_idx, complex_dimension, scale_factor))
+        for layer_idx in range(len(self.layers)):
+            scale_info = layer_idx_to_scale_info[layer_idx]
+            if len(scale_info) == 0:
+                # set 为 None，很重要，一定要全部覆盖
+                self.layers[layer_idx].self_attn.set_scale_factor_in_complex_dimensions(None)
+            else:
+                # [head_num, size_per_head // 2]
+                scale_factor_in_complex_dimensions = np.ones((self.num_attention_heads, self.complex_dim), dtype=np.float32)
+                for head_idx, complex_dimension, scale_factor in scale_info:
+                    scale_factor_in_complex_dimensions[head_idx, complex_dimension] = scale_factor
+                self.layers[layer_idx].self_attn.set_scale_factor_in_complex_dimensions(scale_factor_in_complex_dimensions)
 
     def set_all_layer_masked_head_complex_dimensions(self, df):
         from collections import defaultdict
