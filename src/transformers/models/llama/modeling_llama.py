@@ -49,7 +49,7 @@ from ...utils import (
     replace_return_docstrings,
 )
 from .configuration_llama import LlamaConfig
-
+import numpy as np
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
