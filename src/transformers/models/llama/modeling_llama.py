@@ -245,10 +245,20 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
         enable_scale_factor = True
     else:
         enable_scale_factor = False
-    assert sum([enable_mask, enable_cancel_rope, enable_scale_factor]) <= 1
+    # 允许同时 enable_scale_factor 和 enable mask，此时如果有冲突，会优先 mask 的
+    assert sum([enable_mask, enable_cancel_rope, enable_scale_factor]) <= 1 or (enable_scale_factor is True and enable_cancel_rope is False and enable_mask is True)
     if enable_mask is False and enable_cancel_rope is False and enable_scale_factor is False:
         cos = cos.unsqueeze(unsqueeze_dim)
         sin = sin.unsqueeze(unsqueeze_dim)
+    elif enable_scale_factor is True and enable_cancel_rope is False and enable_mask is True:
+        assert unsqueeze_dim == 1
+        # 已经是 [batch_size, head_num, seq_len, size_per_head]
+        size_per_head = cos.shape[-1]
+        for head_idx, complex_dimension in masked_head_complex_dimensions:
+            cos[:, head_idx, :, complex_dimension] = 0.
+            cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
+            sin[:, head_idx, :, complex_dimension] = 0.
+            sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
     elif enable_mask is True:
         assert unsqueeze_dim == 1
         head_num = q.shape[1]
@@ -444,7 +454,7 @@ class LlamaAttention(nn.Module):
         if self.is_collect_debug_info:
             self.debug_info["origin_q"] = query_states
             self.debug_info["origin_k"] = key_states
-            self.debug_info["origin_v"] = value_states
+            # self.debug_info["origin_v"] = value_states
 
         past_key_value = getattr(self, "past_key_value", past_key_value)
         cos, sin, freqs = self.rotary_emb(value_states, position_ids)
