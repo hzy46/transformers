@@ -595,7 +595,7 @@ class LlamaFlashAttention2(LlamaAttention):
         # 创建 [1, head_num, 1, size_per_head] 的向量来和 query 做结合
         # scaler_for_alpha 是 [head_num, size_per_head] 的 numpy
         if self.scaler_for_alpha is not None:
-            scaler_for_alpha = torch.Tensor(self.scaler_for_alpha, dtype=query_states.dtype).to(query_states.device)
+            scaler_for_alpha = torch.Tensor(self.scaler_for_alpha).to(query_states.device)
             scaler_for_alpha = torch.unsqueeze(scaler_for_alpha, dim=0)
             scaler_for_alpha = torch.unsqueeze(scaler_for_alpha, dim=2)
             print(scaler_for_alpha.dtype)
