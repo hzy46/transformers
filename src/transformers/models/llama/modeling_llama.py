@@ -609,7 +609,7 @@ class LlamaFlashAttention2(LlamaAttention):
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
         
         if self.is_collect_debug_info:
-            self.debug_info["rope_q"] = query_states.degtach().cpu()
+            self.debug_info["rope_q"] = query_states.detach().cpu()
             self.debug_info["rope_k"] = key_states.detach().cpu()
 
 
