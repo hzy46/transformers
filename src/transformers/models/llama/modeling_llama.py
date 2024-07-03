@@ -533,6 +533,7 @@ class LlamaFlashAttention2(LlamaAttention):
         self.masked_head_complex_dimensions = None
         self.cancel_rope_head_complex_dimensions = None
         self.scale_factor_in_complex_dimensions = None
+        self.scaler_for_alpha = None
         self.debug_info = {}
         self.is_collect_debug_info = True
 
@@ -544,6 +545,9 @@ class LlamaFlashAttention2(LlamaAttention):
 
     def set_scale_factor_in_complex_dimensions(self, scale_factor_in_complex_dimensions):
         self.scale_factor_in_complex_dimensions = scale_factor_in_complex_dimensions
+
+    def set_scaler_for_alpha(self, scaler_for_alpha):
+        self.scaler_for_alpha = scaler_for_alpha
 
     def set_is_collect_debug_info(self, is_collect_debug_info):
         self.is_collect_debug_info = is_collect_debug_info
@@ -587,6 +591,16 @@ class LlamaFlashAttention2(LlamaAttention):
             scale_factor_in_complex_dimensions=self.scale_factor_in_complex_dimensions,
         )
 
+        # 此时 query_states 为  [batch_size, head_num, seq_len, size_per_head]
+        # 创建 [1, head_num, 1, size_per_head] 的向量来和 query 做结合
+        # scaler_for_alpha 是 [head_num, size_per_head] 的 numpy
+        if self.scaler_for_alpha is not None:
+            scaler_for_alpha = torch.Tensor(self.scaler_for_alpha).to(query_states.device)
+            scaler_for_alpha = torch.unsqueeze(scaler_for_alpha, dim=0)
+            scaler_for_alpha = torch.unsqueeze(scaler_for_alpha, dim=2)
+            query_states = query_states * scaler_for_alpha
+
+
         past_key_value = getattr(self, "past_key_value", past_key_value)
 
         if past_key_value is not None:
@@ -595,7 +609,7 @@ class LlamaFlashAttention2(LlamaAttention):
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
         
         if self.is_collect_debug_info:
-            self.debug_info["rope_q"] = query_states.detach().cpu()
+            self.debug_info["rope_q"] = query_states.degtach().cpu()
             self.debug_info["rope_k"] = key_states.detach().cpu()
 
 
@@ -1086,7 +1100,34 @@ class LlamaModel(LlamaPreTrainedModel):
         self.set_all_layer_masked_head_complex_dimensions(pd.DataFrame([]))
         self.set_all_layer_cancel_rope_head_complex_dimensions(pd.DataFrame([]))
         self.set_all_layer_scale_factor_in_complex_dimensions(pd.DataFrame([]))
+        self.set_all_layer_alpha_in_complex_dimensions(pd.DataFrame([]))
         print("reset!")
+
+
+    def set_all_layer_alpha_in_complex_dimensions(self, df):
+        from collections import defaultdict
+        layer_idx_to_alpha_info = defaultdict(list)
+        # df: (layer_idx, head_idx, x, alpha)
+        for _, row in df.iterrows():
+            layer_idx = int(row.layer_idx)
+            head_idx = int(row.head_idx)
+            complex_dimension = int(row.x)
+            alpha = float(row.alpha)
+            layer_idx_to_alpha_info[layer_idx].append((head_idx, complex_dimension, alpha))
+        for layer_idx in range(len(self.layers)):
+            alpha_info = layer_idx_to_alpha_info[layer_idx]
+            if len(alpha_info) == 0:
+                # set 为 None，很重要，一定要全部覆盖
+                self.layers[layer_idx].self_attn.set_scaler_for_alpha(None)
+            else:
+                # 先创建 [head_num, size_per_head // 2]，再变成 [head_num, size_per_head]
+                scaler_for_alpha_in_complex_dimensions = np.ones((self.num_attention_heads, self.complex_dim), dtype=np.float32)
+                for head_idx, complex_dimension, alpha in alpha_info:
+                    # 很关键，实际我们用 1 + alpha
+                    scaler_for_alpha_in_complex_dimensions[head_idx, complex_dimension] = float(1 + alpha)
+                    # [head_num, size_per_head]
+                    scaler_for_alpha = np.concatenate([scaler_for_alpha_in_complex_dimensions, scaler_for_alpha_in_complex_dimensions], axis=1)
+                    self.layers[layer_idx].self_attn.set_scaler_for_alpha(scaler_for_alpha)
 
     def set_all_layer_scale_factor_in_complex_dimensions(self, df):
         from collections import defaultdict
