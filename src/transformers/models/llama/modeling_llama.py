@@ -1121,7 +1121,7 @@ class LlamaModel(LlamaPreTrainedModel):
                 self.layers[layer_idx].self_attn.set_scaler_for_alpha(None)
             else:
                 # 先创建 [head_num, size_per_head // 2]，再变成 [head_num, size_per_head]
-                scaler_for_alpha_in_complex_dimensions = np.ones((self.num_attention_heads, self.complex_dim), dtype=np.float32)
+                scaler_for_alpha_in_complex_dimensions = np.ones((self.num_attention_heads, self.complex_dim), dtype=np.float16)
                 for head_idx, complex_dimension, alpha in alpha_info:
                     # 很关键，实际我们用 1 + alpha
                     scaler_for_alpha_in_complex_dimensions[head_idx, complex_dimension] = float(1 + alpha)
