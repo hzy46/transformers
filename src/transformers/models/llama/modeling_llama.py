@@ -213,7 +213,7 @@ def rotate_half(x):
 
 
 def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1, 
-    masked_head_complex_dimensions=None, cancel_rope_head_complex_dimensions=None, scale_factor_in_complex_dimensions=None):
+    masked_head_complex_dimensions=None, cancel_rope_head_complex_dimensions=None, scale_factor_in_complex_dimensions=None, except_first_masked_head_complex_dimensions=None):
     """Applies Rotary Position Embedding to the query and key tensors.
 
     Args:
@@ -237,6 +237,10 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
         enable_mask = True
     else:
         enable_mask = False
+    if except_first_masked_head_complex_dimensions is not None and len(except_first_masked_head_complex_dimensions) > 0:
+        enable_except_first_mask = True
+    else:
+        enable_except_first_mask = False
     if cancel_rope_head_complex_dimensions is not None and len(cancel_rope_head_complex_dimensions) > 0:
         enable_cancel_rope = True
     else:
@@ -245,9 +249,12 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
         enable_scale_factor = True
     else:
         enable_scale_factor = False
+    assert sum([enable_mask, enable_except_first_mask]) <= 1
     # 允许同时 enable_scale_factor 和 enable mask，此时如果有冲突，会优先 mask 的
-    assert sum([enable_mask, enable_cancel_rope, enable_scale_factor]) <= 1 or (enable_scale_factor is True and enable_cancel_rope is False and enable_mask is True)
-    if enable_mask is False and enable_cancel_rope is False and enable_scale_factor is False:
+    assert sum([enable_mask, enable_cancel_rope, enable_except_first_mask, enable_scale_factor]) <= 1 or \
+        (enable_scale_factor is True and enable_cancel_rope is False and enable_mask is True) or \
+        (enable_scale_factor is True and enable_cancel_rope is False and enable_except_first_mask is True)
+    if enable_mask is False and enable_cancel_rope is False and enable_scale_factor is False and enable_except_first_mask is False:
         cos = cos.unsqueeze(unsqueeze_dim)
         sin = sin.unsqueeze(unsqueeze_dim)
     elif enable_scale_factor is True and enable_cancel_rope is False and enable_mask is True:
@@ -259,6 +266,15 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
             cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
             sin[:, head_idx, :, complex_dimension] = 0.
             sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
+    elif enable_scale_factor is True and enable_cancel_rope is False and enable_except_first_mask is True:
+        assert unsqueeze_dim == 1
+        # 已经是 [batch_size, head_num, seq_len, size_per_head]
+        size_per_head = cos.shape[-1]
+        for head_idx, complex_dimension in masked_head_complex_dimensions:
+            cos[:, head_idx, 1:, complex_dimension] = 0.
+            cos[:, head_idx, 1:, complex_dimension + size_per_head // 2] = 0.
+            sin[:, head_idx, 1:, complex_dimension] = 0.
+            sin[:, head_idx, 1:, complex_dimension + size_per_head // 2] = 0.
     elif enable_mask is True:
         assert unsqueeze_dim == 1
         head_num = q.shape[1]
@@ -272,6 +288,19 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
             cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
             sin[:, head_idx, :, complex_dimension] = 0.
             sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
+    elif enable_except_first_mask is True:
+        assert unsqueeze_dim == 1
+        head_num = q.shape[1]
+        size_per_head = cos.shape[-1]
+        # 经过下面的后，都是[batch_size, head_num, seq_len, size_per_head]
+        cos = torch.unsqueeze(cos, axis=1).repeat(1, head_num, 1, 1)
+        sin = torch.unsqueeze(sin, axis=1).repeat(1, head_num, 1, 1)
+        # 进行 mask
+        for head_idx, complex_dimension in masked_head_complex_dimensions:
+            cos[:, head_idx, 1:, complex_dimension] = 0.
+            cos[:, head_idx, 1:, complex_dimension + size_per_head // 2] = 0.
+            sin[:, head_idx, 1:, complex_dimension] = 0.
+            sin[:, head_idx, 1:, complex_dimension + size_per_head // 2] = 0.
     elif enable_cancel_rope is True:
         assert unsqueeze_dim == 1
         head_num = q.shape[1]
@@ -534,6 +563,7 @@ class LlamaFlashAttention2(LlamaAttention):
         self.cancel_rope_head_complex_dimensions = None
         self.scale_factor_in_complex_dimensions = None
         self.scaler_for_alpha = None
+        self.except_first_masked_head_complex_dimensions = None
         self.debug_info = {}
         self.is_collect_debug_info = True
 
@@ -551,6 +581,9 @@ class LlamaFlashAttention2(LlamaAttention):
 
     def set_is_collect_debug_info(self, is_collect_debug_info):
         self.is_collect_debug_info = is_collect_debug_info
+
+    def set_except_first_masked_head_complex_dimensions(self, except_first_masked_head_complex_dimensions):
+        self.except_first_masked_head_complex_dimensions = except_first_masked_head_complex_dimensions
 
     def forward(
         self,
@@ -588,7 +621,7 @@ class LlamaFlashAttention2(LlamaAttention):
             self.debug_info["sin"] = sin.detach().cpu()
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin,
             masked_head_complex_dimensions=self.masked_head_complex_dimensions, cancel_rope_head_complex_dimensions=self.cancel_rope_head_complex_dimensions,
-            scale_factor_in_complex_dimensions=self.scale_factor_in_complex_dimensions,
+            scale_factor_in_complex_dimensions=self.scale_factor_in_complex_dimensions, except_first_masked_head_complex_dimensions=self.except_first_masked_head_complex_dimensions,
         )
 
         # 此时 query_states 为  [batch_size, head_num, seq_len, size_per_head]
@@ -1101,6 +1134,7 @@ class LlamaModel(LlamaPreTrainedModel):
         self.set_all_layer_cancel_rope_head_complex_dimensions(pd.DataFrame([]))
         self.set_all_layer_scale_factor_in_complex_dimensions(pd.DataFrame([]))
         self.set_all_layer_alpha_in_complex_dimensions(pd.DataFrame([]))
+        self.set_all_layer_except_first_masked_head_complex_dimensions(pd.DataFrame([]))
         print("reset!")
 
 
@@ -1164,6 +1198,19 @@ class LlamaModel(LlamaPreTrainedModel):
             masked_head_complex_dimensions = layer_idx_to_masked_head_complex_dimensions[layer_idx]
             # print(f"masked: layer {layer_idx} masked_head_complex_dimensions: {masked_head_complex_dimensions}")
             self.layers[layer_idx].self_attn.set_masked_head_complex_dimensions(masked_head_complex_dimensions)
+
+    def set_all_layer_except_first_masked_head_complex_dimensions(self, df):
+        from collections import defaultdict
+        layer_idx_to_masked_head_complex_dimensions = defaultdict(list)
+        for _, row in df.iterrows():
+            layer_idx = int(row.layer_idx)
+            head_idx = int(row.head_idx)
+            complex_dimension = int(row.x)
+            layer_idx_to_masked_head_complex_dimensions[layer_idx].append((head_idx, complex_dimension))
+        for layer_idx in range(len(self.layers)):
+            masked_head_complex_dimensions = layer_idx_to_masked_head_complex_dimensions[layer_idx]
+            # print(f"masked: layer {layer_idx} masked_head_complex_dimensions: {masked_head_complex_dimensions}")
+            self.layers[layer_idx].self_attn.set_except_first_masked_head_complex_dimensions(masked_head_complex_dimensions)
 
     def set_all_layer_cancel_rope_head_complex_dimensions(self, df):
         from collections import defaultdict
