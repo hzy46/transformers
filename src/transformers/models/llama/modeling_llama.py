@@ -298,6 +298,7 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
         pass
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
+    size_per_head = cos.shape[-1]
     if enable_except_first_mask is True:
         # 进行 mask
         for head_idx, complex_dimension in except_first_masked_head_complex_dimensions:
