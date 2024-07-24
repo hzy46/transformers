@@ -266,15 +266,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
             cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
             sin[:, head_idx, :, complex_dimension] = 0.
             sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
-    elif enable_scale_factor is True and enable_cancel_rope is False and enable_except_first_mask is True:
-        assert unsqueeze_dim == 1
-        # 已经是 [batch_size, head_num, seq_len, size_per_head]
-        size_per_head = cos.shape[-1]
-        for head_idx, complex_dimension in masked_head_complex_dimensions:
-            cos[:, head_idx, 1:, complex_dimension] = 0.
-            cos[:, head_idx, 1:, complex_dimension + size_per_head // 2] = 0.
-            sin[:, head_idx, 1:, complex_dimension] = 0.
-            sin[:, head_idx, 1:, complex_dimension + size_per_head // 2] = 0.
     elif enable_mask is True:
         assert unsqueeze_dim == 1
         head_num = q.shape[1]
@@ -288,19 +279,6 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
             cos[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
             sin[:, head_idx, :, complex_dimension] = 0.
             sin[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
-    elif enable_except_first_mask is True:
-        assert unsqueeze_dim == 1
-        head_num = q.shape[1]
-        size_per_head = cos.shape[-1]
-        # 经过下面的后，都是[batch_size, head_num, seq_len, size_per_head]
-        cos = torch.unsqueeze(cos, axis=1).repeat(1, head_num, 1, 1)
-        sin = torch.unsqueeze(sin, axis=1).repeat(1, head_num, 1, 1)
-        # 进行 mask
-        for head_idx, complex_dimension in masked_head_complex_dimensions:
-            cos[:, head_idx, 1:, complex_dimension] = 0.
-            cos[:, head_idx, 1:, complex_dimension + size_per_head // 2] = 0.
-            sin[:, head_idx, 1:, complex_dimension] = 0.
-            sin[:, head_idx, 1:, complex_dimension + size_per_head // 2] = 0.
     elif enable_cancel_rope is True:
         assert unsqueeze_dim == 1
         head_num = q.shape[1]
@@ -320,6 +298,13 @@ def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1,
         pass
     q_embed = (q * cos) + (rotate_half(q) * sin)
     k_embed = (k * cos) + (rotate_half(k) * sin)
+    if enable_except_first_mask is True
+        # 进行 mask
+        for head_idx, complex_dimension in except_first_masked_head_complex_dimensions:
+            q_embed[:, head_idx, 1:, complex_dimension] = -10000.
+            q_embed[:, head_idx, 1:, complex_dimension + size_per_head // 2] = -10000.
+            k_embed[:, head_idx, 1:, complex_dimension] = -10000.
+            k_embed[:, head_idx, 1:, complex_dimension + size_per_head // 2] = -10000.
     return q_embed, k_embed
 
 
