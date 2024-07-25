@@ -542,7 +542,7 @@ class LlamaFlashAttention2(LlamaAttention):
 
         # 根据 mask 修改：
         if self.masked_head_complex_dimensions is not None and len(self.masked_head_complex_dimensions) > 0:
-            for head_idx, complex_dimension in masked_head_complex_dimensions:
+            for head_idx, complex_dimension in self.masked_head_complex_dimensions:
                 # 此时 query_states 为  [batch_size, head_num, seq_len, size_per_head]
                 # 之所以不改 k，是因为 k 会被复用
                 query_states[:, head_idx, :, complex_dimension] = 0.
