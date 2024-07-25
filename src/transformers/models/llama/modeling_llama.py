@@ -545,6 +545,7 @@ class LlamaFlashAttention2(LlamaAttention):
             for head_idx, complex_dimension in self.masked_head_complex_dimensions:
                 # 此时 query_states 为  [batch_size, head_num, seq_len, size_per_head]
                 # 之所以不改 k，是因为 k 会被复用
+                size_per_head = query_states.shape[-1]
                 query_states[:, head_idx, :, complex_dimension] = 0.
                 query_states[:, head_idx, :, complex_dimension + size_per_head // 2] = 0.
 
