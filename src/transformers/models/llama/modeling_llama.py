@@ -347,7 +347,7 @@ class LlamaAttention(nn.Module):
             "multiplier": multiplier,
         }
 
-    def reset_attention_multiplier(self, q_start, q_end, k_start, k_end, multiplier):
+    def reset_attention_multiplier(self):
         self.attention_multiplier = None
 
     def _init_rope(self):
