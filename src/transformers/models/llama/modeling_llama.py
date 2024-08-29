@@ -347,6 +347,9 @@ class LlamaAttention(nn.Module):
             "multiplier": multiplier,
         }
 
+    def set_full_attention_multiplier(self, multiplier):
+        self.attention_multiplier = multiplier
+
     def reset_attention_multiplier(self):
         self.attention_multiplier = None
 
@@ -454,14 +457,15 @@ class LlamaAttention(nn.Module):
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         if self.attention_multiplier is not None:
             # apply multiplier
-            print(attn_weights.shape)
-            head_idx = self.attention_multiplier["head_idx"]
-            q_start = self.attention_multiplier["q_start"]
-            q_end = self.attention_multiplier["q_end"]
-            k_start = self.attention_multiplier["k_start"]
-            k_end = self.attention_multiplier["k_end"]
-            multiplier = self.attention_multiplier["multiplier"]
-            attn_weights[:, head_idx, q_start:q_end, k_start:k_end] = attn_weights[:, head_idx, q_start:q_end, k_start:k_end] * multiplier
+            # print(attn_weights.shape)
+            # head_idx = self.attention_multiplier["head_idx"]
+            # q_start = self.attention_multiplier["q_start"]
+            # q_end = self.attention_multiplier["q_end"]
+            # k_start = self.attention_multiplier["k_start"]
+            # k_end = self.attention_multiplier["k_end"]
+            # multiplier = self.attention_multiplier["multiplier"]
+            # attn_weights[:, head_idx, q_start:q_end, k_start:k_end] = attn_weights[:, head_idx, q_start:q_end, k_start:k_end] * multiplier
+            attn_weights = attn_weights * self.attention_multiplier
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
         if self.is_collect_debug_info:
             self.debug_info["attention_score"] = attn_weights
