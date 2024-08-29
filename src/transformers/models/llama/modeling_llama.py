@@ -332,10 +332,6 @@ class LlamaAttention(nn.Module):
 
         self.debug_info = {}
         self.is_collect_debug_info = True
-        self.masked_head_complex_dimensions = None
-
-    def set_masked_head_complex_dimensions(self, masked_head_complex_dimensions):
-        self.masked_head_complex_dimensions = masked_head_complex_dimensions
 
     def set_is_collect_debug_info(self, is_collect_debug_info):
         self.is_collect_debug_info = is_collect_debug_info
@@ -416,7 +412,7 @@ class LlamaAttention(nn.Module):
             self.debug_info["cos"] = cos
             self.debug_info["sin"] = sin
             self.debug_info["freqs"] = freqs
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, masked_head_complex_dimensions=self.masked_head_complex_dimensions)
+        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if past_key_value is not None:
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
