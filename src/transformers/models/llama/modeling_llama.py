@@ -332,9 +332,23 @@ class LlamaAttention(nn.Module):
 
         self.debug_info = {}
         self.is_collect_debug_info = True
+        self.attention_multiplier = None
 
     def set_is_collect_debug_info(self, is_collect_debug_info):
         self.is_collect_debug_info = is_collect_debug_info
+
+    def set_attention_multiplier(self, head_idx, q_start, q_end, k_start, k_end, multiplier):
+        self.attention_multiplier = {
+            "head_idx": head_idx,
+            "q_start": q_start,
+            "q_end": q_end,
+            "k_start": k_start,
+            "k_end": k_end,
+            "multiplier": multiplier,
+        }
+
+    def reset_attention_multiplier(self, q_start, q_end, k_start, k_end, multiplier):
+        self.attention_multiplier = None
 
     def _init_rope(self):
         if self.config.rope_scaling is None:
@@ -438,6 +452,16 @@ class LlamaAttention(nn.Module):
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        if self.attention_multiplier is not None:
+            # apply multiplier
+            print(attn_weights.shape)
+            head_idx = self.attention_multiplier["head_idx"]
+            q_start = self.attention_multiplier["q_start"]
+            q_end = self.attention_multiplier["q_end"]
+            k_start = self.attention_multiplier["k_start"]
+            k_end = self.attention_multiplier["k_end"]
+            multiplier = self.attention_multiplier["multiplier"]
+            attn_weights[:, head_idx, q_start:q_end, k_start:k_end] = attn_weights[:, head_idx, q_start:q_end, k_start:k_end] * multiplier
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
         if self.is_collect_debug_info:
             self.debug_info["attention_score"] = attn_weights
@@ -1054,7 +1078,12 @@ class LlamaModel(LlamaPreTrainedModel):
         self.set_all_layer_masked_head_complex_dimensions(pd.DataFrame([]))
         self.set_all_layer_scale_factor_in_complex_dimensions(pd.DataFrame([]))
         self.set_all_layer_alpha_in_complex_dimensions(pd.DataFrame([]))
+        self.reset_all_layer_attention_multiplier()
         print("reset!")
+
+    def reset_all_layer_attention_multiplier(self):
+        for layer_idx in range(len(self.layers)):
+            self.layers[layer_idx].self_attn.reset_attention_multiplier()
 
 
     def set_all_layer_alpha_in_complex_dimensions(self, df):
