@@ -459,7 +459,7 @@ class LlamaAttention(nn.Module):
             attn_weights = attn_weights * self.attention_multiplier
 
         if self.tracking_attention_mask_and_multiplier is not None:
-            tracking_attention_mask,  = self.tracking_attention_mask_and_multiplier
+            tracking_attention_mask, tracking_multiplier = self.tracking_attention_mask_and_multiplier
             # attn_weights 是 (batch_size, head_dim, seq_len, seq_len)
             # 变成 (1, 1, seq_len, seq_len)
             tracking_attention_mask = tracking_attention_mask.unsqueeze(0).unsqueeze(0) 
