@@ -333,19 +333,18 @@ class LlamaAttention(nn.Module):
         self.debug_info = {}
         self.is_collect_debug_info = True
         self.attention_multiplier = None
+        self.tracking_attention_mask_and_multiplier = None
 
     def set_is_collect_debug_info(self, is_collect_debug_info):
         self.is_collect_debug_info = is_collect_debug_info
 
-    def set_attention_multiplier(self, head_idx, q_start, q_end, k_start, k_end, multiplier):
-        self.attention_multiplier = {
-            "head_idx": head_idx,
-            "q_start": q_start,
-            "q_end": q_end,
-            "k_start": k_start,
-            "k_end": k_end,
-            "multiplier": multiplier,
-        }
+    def set_tracking_attention_mask_and_multiplier(self, tracking_attention_mask, multiplier):
+        # tracking_attention_mask 应该是 torch.bool 类型，形状是 (seq_len, seq_len), 1 的 地方表示要 track，0 的地方表示不 track
+        # multiplier 应该是 torch.float16 类型，形状是 (head_num, )，表示这一层每一个 head 的辅助变量
+        self.tracking_attention_mask_and_multiplier = tracking_attention_mask, multiplier
+
+    def reset_tracking_attention_mask_and_multiplier(self):
+        self.tracking_attention_mask_and_multiplier = None
 
     def set_full_attention_multiplier(self, multiplier):
         self.attention_multiplier = multiplier
@@ -457,15 +456,19 @@ class LlamaAttention(nn.Module):
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         if self.attention_multiplier is not None:
             # apply multiplier
-            # print(attn_weights.shape)
-            # head_idx = self.attention_multiplier["head_idx"]
-            # q_start = self.attention_multiplier["q_start"]
-            # q_end = self.attention_multiplier["q_end"]
-            # k_start = self.attention_multiplier["k_start"]
-            # k_end = self.attention_multiplier["k_end"]
-            # multiplier = self.attention_multiplier["multiplier"]
-            # attn_weights[:, head_idx, q_start:q_end, k_start:k_end] = attn_weights[:, head_idx, q_start:q_end, k_start:k_end] * multiplier
             attn_weights = attn_weights * self.attention_multiplier
+
+        if self.tracking_attention_mask_and_multiplier is not None:
+            tracking_attention_mask,  = self.tracking_attention_mask_and_multiplier
+            # attn_weights 是 (batch_size, head_dim, seq_len, seq_len)
+            # 变成 (1, 1, seq_len, seq_len)
+            tracking_attention_mask = tracking_attention_mask.unsqueeze(0).unsqueeze(0) 
+            # 变成 (1, 32, 1, 1)
+            tracking_multiplier = tracking_multiplier.reshape(1, tracking_multiplier.shape[0], 1, 1)
+            # mask 是 1 的话，取tracking_multiplier * attn_weights，否则，还是原来的
+            attn_weights = torch.where(tracking_attention_mask, tracking_multiplier * attn_weights, attn_weights)
+
+
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
         if self.is_collect_debug_info:
             self.debug_info["attention_score"] = attn_weights
@@ -1083,12 +1086,16 @@ class LlamaModel(LlamaPreTrainedModel):
         self.set_all_layer_scale_factor_in_complex_dimensions(pd.DataFrame([]))
         self.set_all_layer_alpha_in_complex_dimensions(pd.DataFrame([]))
         self.reset_all_layer_attention_multiplier()
+        self.reset_all_layer_tracking_attention_mask_and_multiplier()
         print("reset!")
 
     def reset_all_layer_attention_multiplier(self):
         for layer_idx in range(len(self.layers)):
             self.layers[layer_idx].self_attn.reset_attention_multiplier()
 
+    def reset_all_layer_tracking_attention_mask_and_multiplier(self):
+        for layer_idx in range(len(self.layers)):
+            self.layers[layer_idx].self_attn.reset_tracking_attention_mask_and_multiplier()
 
     def set_all_layer_alpha_in_complex_dimensions(self, df):
         from collections import defaultdict
