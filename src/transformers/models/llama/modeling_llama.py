@@ -596,6 +596,7 @@ class LlamaFlashAttention2(LlamaAttention):
         if self.is_collect_debug_info:
             self.debug_info["rope_q"] = query_states.detach().cpu()
             self.debug_info["rope_k"] = key_states.detach().cpu()
+            self.debug_info["rope_v"] = value_states.detach().cpu()
 
 
         # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
