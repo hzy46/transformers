@@ -638,6 +638,8 @@ class LlamaFlashAttention2(LlamaAttention):
         )
 
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
+        if self.is_collect_debug_info:
+            self.debug_info["attn_output"] = attn_output.detach().cpu()
         attn_output = self.o_proj(attn_output)
 
         if not output_attentions:
