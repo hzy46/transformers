@@ -418,16 +418,16 @@ class LlamaAttention(nn.Module):
         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         if self.is_collect_debug_info:
-            self.debug_info["origin_q"] = query_states
-            self.debug_info["origin_k"] = key_states
+            # self.debug_info["origin_q"] = query_states
+            # self.debug_info["origin_k"] = key_states
             # self.debug_info["origin_v"] = value_states
 
         past_key_value = getattr(self, "past_key_value", past_key_value)
         cos, sin, freqs = self.rotary_emb(value_states, position_ids)
         if self.is_collect_debug_info:
-            self.debug_info["cos"] = cos
-            self.debug_info["sin"] = sin
-            self.debug_info["freqs"] = freqs
+            # self.debug_info["cos"] = cos
+            # self.debug_info["sin"] = sin
+            # self.debug_info["freqs"] = freqs
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
         if past_key_value is not None:
@@ -436,21 +436,21 @@ class LlamaAttention(nn.Module):
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
         if self.is_collect_debug_info:
-            self.debug_info["rope_q"] = query_states
-            self.debug_info["rope_k"] = key_states
+            self.debug_info["rope_q"] = query_states.detach().cpu()
+            self.debug_info["rope_k"] = key_states.detach().cpu()
 
         key_states = repeat_kv(key_states, self.num_key_value_groups)
         value_states = repeat_kv(value_states, self.num_key_value_groups)
 
         attn_weights = torch.matmul(query_states, key_states.transpose(2, 3)) / math.sqrt(self.head_dim)
-        if self.is_collect_debug_info:
-            self.debug_info["attention_weights"] = attn_weights
+        # if self.is_collect_debug_info:
+        #     self.debug_info["attention_weights"] = attn_weights
 
         if attention_mask is not None:  # no matter the length, we just slice it
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
             if self.is_collect_debug_info:
-                self.debug_info["causal_mask"] = causal_mask
+                self.debug_info["causal_mask"] = causal_mask.detach().cpu()
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
@@ -471,7 +471,7 @@ class LlamaAttention(nn.Module):
 
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
         if self.is_collect_debug_info:
-            self.debug_info["attention_score"] = attn_weights
+            self.debug_info["attention_score"] = attn_weights.detach().cpu()
         attn_output = torch.matmul(attn_weights, value_states)
 
         if attn_output.size() != (bsz, self.num_heads, q_len, self.head_dim):
