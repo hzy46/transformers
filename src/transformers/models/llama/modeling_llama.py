@@ -424,7 +424,7 @@ class LlamaAttention(nn.Module):
 
         past_key_value = getattr(self, "past_key_value", past_key_value)
         cos, sin, freqs = self.rotary_emb(value_states, position_ids)
-        if self.is_collect_debug_info:
+        # if self.is_collect_debug_info:
             # self.debug_info["cos"] = cos
             # self.debug_info["sin"] = sin
             # self.debug_info["freqs"] = freqs
