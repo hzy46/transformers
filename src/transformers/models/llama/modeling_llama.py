@@ -417,7 +417,7 @@ class LlamaAttention(nn.Module):
         query_states = query_states.view(bsz, q_len, self.num_heads, self.head_dim).transpose(1, 2)
         key_states = key_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
         value_states = value_states.view(bsz, q_len, self.num_key_value_heads, self.head_dim).transpose(1, 2)
-        if self.is_collect_debug_info:
+        # if self.is_collect_debug_info:
             # self.debug_info["origin_q"] = query_states
             # self.debug_info["origin_k"] = key_states
             # self.debug_info["origin_v"] = value_states
