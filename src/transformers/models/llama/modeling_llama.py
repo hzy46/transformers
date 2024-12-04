@@ -514,6 +514,33 @@ class LlamaFlashAttention2(LlamaAttention):
             cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
 
+        # transform 之前
+        # query_states 是 [batch_size, self.num_heads, seq_len, self.head_dim]
+        # key_states 是 [batch_size, self.num_key_value_heads, seq_len, self.head_dim] 如果 mqa 的话 num_key_value_heads 和 self.num_heads 是不一样的
+        if len(self.debug_attention_query_list) > 0:
+            self.debug_info["attention_query_ret_list"] = []
+            repeated_key_states = repeat_kv(key_states, self.num_key_value_groups)
+            for one_query in self.debug_attention_query_list:
+                start_pos = one_query["start_pos"]
+                window_size = one_query["window_size"]
+                attn_weights = torch.matmul(query_states[..., start_pos:start_pos + window_size, :], repeated_key_states[..., :start_pos + window_size, :].transpose(2, 3)) / math.sqrt(head_dim)
+                # some code copied from SnapKV
+                mask = torch.full((window_size, window_size), torch.finfo(attn_weights.dtype).min, device=attn_weights.device)
+                mask_cond = torch.arange(mask.size(-1), device=attn_weights.device)
+                mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
+                mask = mask.to(attn_weights.device)
+                attention_mask = mask[None, None, :, :]
+                attn_weights[:, :, -window_size:, -window_size:] += attention_mask
+                # attention weights: [1, head_num, window_size, seq_len]
+                attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+                scores = attn_weights.mean(dim=(1, 2)).detach().cpu().numpy()
+                self.debug_info["attention_query_ret_list"].append({
+                    "scores": scores,
+                    "start_pos": start_pos,
+                    "window_size": window_size,
+                })
+            del repeated_key_states
+
         # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
         # to be able to avoid many of these transpose/reshape/view.
         query_states = query_states.transpose(1, 2)
@@ -548,6 +575,9 @@ class LlamaFlashAttention2(LlamaAttention):
             key_states = key_states.to(target_dtype)
             value_states = value_states.to(target_dtype)
 
+        # 这里
+        # query_states 是 [batch_size, seq_len, self.num_heads, self.head_dim]
+        # key_states 是 [batch_size, seq_len, self.num_key_value_heads, self.head_dim] 如果 mqa 的话 num_key_value_heads 和 self.num_heads 是不一样的
         attn_output = self._flash_attention_forward(
             query_states, key_states, value_states, attention_mask, q_len, dropout=dropout_rate
         )
@@ -555,8 +585,6 @@ class LlamaFlashAttention2(LlamaAttention):
         attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
         attn_output = self.o_proj(attn_output)
 
-        print("query_states shape", query_states.shape)
-        print("key_states shape", key_states.shape)
 
         if not output_attentions:
             attn_weights = None
