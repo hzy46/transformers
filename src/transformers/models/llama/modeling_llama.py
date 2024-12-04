@@ -523,7 +523,7 @@ class LlamaFlashAttention2(LlamaAttention):
             for one_query in self.debug_attention_query_list:
                 start_pos = one_query["start_pos"]
                 window_size = one_query["window_size"]
-                attn_weights = torch.matmul(query_states[..., start_pos:start_pos + window_size, :], repeated_key_states[..., :start_pos + window_size, :].transpose(2, 3)) / math.sqrt(head_dim)
+                attn_weights = torch.matmul(query_states[..., start_pos:start_pos + window_size, :], repeated_key_states[..., :start_pos + window_size, :].transpose(2, 3)) / math.sqrt(self.head_dim)
                 # some code copied from SnapKV
                 mask = torch.full((window_size, window_size), torch.finfo(attn_weights.dtype).min, device=attn_weights.device)
                 mask_cond = torch.arange(mask.size(-1), device=attn_weights.device)
