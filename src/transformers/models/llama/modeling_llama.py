@@ -529,8 +529,9 @@ class LlamaFlashAttention2(LlamaAttention):
                 mask_cond = torch.arange(mask.size(-1), device=attn_weights.device)
                 mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
                 mask = mask.to(attn_weights.device)
-                attention_mask = mask[None, None, :, :]
-                attn_weights[:, :, -window_size:, -window_size:] += attention_mask
+                debug_attention_mask = mask[None, None, :, :]
+                print("attn_weights[:, :, -window_size:, -window_size:] size")
+                attn_weights[:, :, -window_size:, -window_size:] += debug_attention_mask
                 # attention weights: [1, head_num, window_size, seq_len]
                 attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
                 scores = attn_weights.mean(dim=(1, 2)).detach().cpu().numpy()
