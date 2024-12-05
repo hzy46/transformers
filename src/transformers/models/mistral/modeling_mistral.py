@@ -335,6 +335,7 @@ class MistralFlashAttention2(MistralAttention):
         # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
         self.debug_attention_query_list = []
+        self.debug_v_query_list = []
         self.debug_info = {}
 
     def forward(
@@ -420,6 +421,13 @@ class MistralFlashAttention2(MistralAttention):
 
             cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+        
+
+        if len(self.debug_v_query_list) > 0:
+            position_list = self.debug_v_query_list
+            self.debug_info["pos_to_v"] = {}
+            for pos in position_list:
+                self.debug_info["pos_to_v"][pos] = value_states[:, :, pos, :].detach().cpu().numpy()
 
         # repeat k/v heads if n_kv_heads < n_heads
         key_states = repeat_kv(key_states, self.num_key_value_groups)
