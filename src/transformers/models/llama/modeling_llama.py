@@ -49,7 +49,7 @@ from ...utils import (
 )
 from ...utils.import_utils import is_torch_fx_available
 from .configuration_llama import LlamaConfig
-
+import gc
 
 if is_flash_attn_2_available():
     from flash_attn import flash_attn_func, flash_attn_varlen_func
@@ -540,6 +540,9 @@ class LlamaFlashAttention2(LlamaAttention):
                     "window_size": window_size,
                 })
             del repeated_key_states
+            del attn_weights
+            gc.collect()
+            torch.cuda.empty_cache()
 
         # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
         # to be able to avoid many of these transpose/reshape/view.
