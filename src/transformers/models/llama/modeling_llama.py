@@ -541,7 +541,7 @@ class LlamaFlashAttention2(LlamaAttention):
                 attn_weights[:, :, -window_size:, -window_size:] += debug_attention_mask
                 # attention weights: [1, head_num, window_size, seq_len]
                 attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-                scores = attn_weights.max(dim=(1, 2)).detach().cpu().numpy()
+                scores = attn_weights.amax(dim=(1, 2)).detach().cpu().numpy()
                 self.debug_info["attention_query_ret_list"].append({
                     "scores": scores,
                     "start_pos": start_pos,
