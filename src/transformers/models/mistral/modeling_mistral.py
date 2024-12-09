@@ -335,6 +335,7 @@ class MistralFlashAttention2(MistralAttention):
         # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
         self.debug_attention_query_list = []
+        self.debug_attention_query_aggfunc = "mean"
         self.debug_v_query_list = []
         self.debug_info = {}
 
@@ -452,7 +453,12 @@ class MistralFlashAttention2(MistralAttention):
                 attn_weights[:, :, -window_size:, -window_size:] += debug_attention_mask
                 # attention weights: [1, head_num, window_size, seq_len]
                 attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-                scores = attn_weights.mean(dim=(1, 2)).detach().cpu().numpy()
+                if self.debug_attention_query_aggfunc == "mean":
+                    scores = attn_weights.mean(dim=(1, 2)).detach().cpu().numpy()
+                elif self.debug_attention_query_aggfunc == "max":
+                    scores = attn_weights.amax(dim=(1, 2)).detach().cpu().numpy()
+                else:
+                    raise NotImplementedError("unknown debug_attention_query_aggfunc: {}".format(self.debug_attention_query_aggfunc))
                 self.debug_info["attention_query_ret_list"].append({
                     "scores": scores,
                     "start_pos": start_pos,
