@@ -522,10 +522,10 @@ class LlamaFlashAttention2(LlamaAttention):
             assert bsz == 1
             _, _, k_length, _ = key_states.shape 
             if k_length > 1000:
-                clear_start_pos = 1
+                clear_start_pos = 100
                 clear_end_pos = k_length - 1000
-                key_states[:, :, clear_start_pos:clear_end_pos, 0:25] = 0.
-                key_states[:, :, clear_start_pos:clear_end_pos, 0 + 64: 25 + 64] = 0.
+                key_states[:, :, clear_start_pos:clear_end_pos, 0:20] = 0.
+                key_states[:, :, clear_start_pos:clear_end_pos, 0 + 64: 20 + 64] = 0.
 
 
         if len(self.debug_v_query_list) > 0:
