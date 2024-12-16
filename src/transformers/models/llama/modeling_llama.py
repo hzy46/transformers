@@ -533,8 +533,8 @@ class LlamaFlashAttention2(LlamaAttention):
                         clear_end_pos = k_length - clear_length
                         # print(f"clear_start_pos: {clear_start_pos} clear_end_pos: {clear_end_pos} clear_dimension_num: {clear_dimension_num}")
                         if clear_end_pos > clear_start_pos:
-                            key_states[:, :, clear_start_pos:clear_end_pos, 0:clear_dimension_num] = 0.
-                            key_states[:, :, clear_start_pos:clear_end_pos, 0 + 64:clear_dimension_num + 64] = 0.
+                            key_states[:, :, clear_start_pos:clear_end_pos, clear_dimension_delta:clear_dimension_delta + clear_dimension_num] = 0.
+                            key_states[:, :, clear_start_pos:clear_end_pos, clear_dimension_delta + 64:clear_dimension_delta + clear_dimension_num + 64] = 0.
 
 
         if len(self.debug_v_query_list) > 0:
