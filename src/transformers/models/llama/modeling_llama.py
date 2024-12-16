@@ -492,7 +492,6 @@ class LlamaFlashAttention2(LlamaAttention):
             # overwrite attention_mask with padding_mask
             attention_mask = kwargs.pop("padding_mask")
 
-        print("exp_setting", self.exp_setting)
         output_attentions = False
 
         bsz, q_len, _ = hidden_states.size()
