@@ -524,13 +524,14 @@ class LlamaFlashAttention2(LlamaAttention):
                 clear_start_pos = self.exp_setting["clear_start_pos"]
                 clear_length = self.exp_setting["clear_length"]
                 clear_dimension_num = self.exp_setting["clear_dimension_num"]
+                clear_dimension_delta = self.exp_setting["clear_dimension_delta"]
                 if q_len == 1:
                     # key_states: [batch_size, head_size, seq_len, head_dim]
                     assert bsz == 1
                     _, _, k_length, _ = key_states.shape 
                     if k_length > clear_length:
                         clear_end_pos = k_length - clear_length
-                        print(f"clear_start_pos: {clear_start_pos} clear_end_pos: {clear_end_pos} clear_dimension_num: {clear_dimension_num}")
+                        # print(f"clear_start_pos: {clear_start_pos} clear_end_pos: {clear_end_pos} clear_dimension_num: {clear_dimension_num}")
                         if clear_end_pos > clear_start_pos:
                             key_states[:, :, clear_start_pos:clear_end_pos, 0:clear_dimension_num] = 0.
                             key_states[:, :, clear_start_pos:clear_end_pos, 0 + 64:clear_dimension_num + 64] = 0.
