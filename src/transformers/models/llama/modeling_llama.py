@@ -494,7 +494,6 @@ class LlamaFlashAttention2(LlamaAttention):
         output_attentions = False
 
         bsz, q_len, _ = hidden_states.size()
-        print("q_len: {}".format(q_len))
 
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
@@ -512,6 +511,10 @@ class LlamaFlashAttention2(LlamaAttention):
             kv_seq_len += past_key_value.get_usable_length(kv_seq_len, self.layer_idx)
         cos, sin = self.rotary_emb(value_states, seq_len=kv_seq_len)
         query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin, position_ids)
+
+        # decode 阶段 
+        if q_len == 1:
+            print("key_states", key_states.shape)
 
         if past_key_value is not None:
             cache_kwargs = {"sin": sin, "cos": cos}  # Specific to RoPE models
