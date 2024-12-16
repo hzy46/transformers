@@ -494,6 +494,7 @@ class LlamaFlashAttention2(LlamaAttention):
         output_attentions = False
 
         bsz, q_len, _ = hidden_states.size()
+        print("q_len: {}".format(q_len))
 
         query_states = self.q_proj(hidden_states)
         key_states = self.k_proj(hidden_states)
