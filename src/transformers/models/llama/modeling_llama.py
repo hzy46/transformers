@@ -50,7 +50,7 @@ from ...utils import (
     replace_return_docstrings,
 )
 from .configuration_llama import LlamaConfig
-
+import gc
 
 logger = logging.get_logger(__name__)
 
@@ -372,6 +372,9 @@ class LlamaFlashAttention2(LlamaAttention):
         # flash_attn<2.1 generates top-left aligned causal mask, while what is needed here is bottom-right alignement, that was made default for flash_attn>=2.1. This attribute is used to handle this difference. Reference: https://github.com/Dao-AILab/flash-attention/releases/tag/v2.1.0.
         # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
+        self.debug_attention_query_list = []
+        self.debug_attention_query_aggfunc = "mean"
+
 
     def forward(
         self,
@@ -422,6 +425,40 @@ class LlamaFlashAttention2(LlamaAttention):
             # sin and cos are specific to RoPE models; cache_position needed for the static cache
             cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
             key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
+
+
+        if len(self.debug_attention_query_list) > 0:
+            self.debug_info["attention_query_ret_list"] = []
+            repeated_key_states = repeat_kv(key_states, self.num_key_value_groups)
+            for one_query in self.debug_attention_query_list:
+                start_pos = one_query["start_pos"]
+                window_size = one_query["window_size"]
+                attn_weights = torch.matmul(query_states[..., start_pos:start_pos + window_size, :], repeated_key_states[..., :start_pos + window_size, :].transpose(2, 3)) / math.sqrt(self.head_dim)
+                # some code copied from SnapKV
+                mask = torch.full((window_size, window_size), torch.finfo(attn_weights.dtype).min, device=attn_weights.device)
+                mask_cond = torch.arange(mask.size(-1), device=attn_weights.device)
+                mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
+                mask = mask.to(attn_weights.device)
+                debug_attention_mask = mask[None, None, :, :]
+                attn_weights[:, :, -window_size:, -window_size:] += debug_attention_mask
+                # attention weights: [1, head_num, window_size, seq_len]
+                attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+                if self.debug_attention_query_aggfunc == "mean":
+                    scores = attn_weights.mean(dim=(1, 2)).detach().cpu().numpy()
+                elif self.debug_attention_query_aggfunc == "max":
+                    scores = attn_weights.amax(dim=(1, 2)).detach().cpu().numpy()
+                else:
+                    raise NotImplementedError("unknown debug_attention_query_aggfunc: {}".format(self.debug_attention_query_aggfunc))
+                self.debug_info["attention_query_ret_list"].append({
+                    "scores": scores,
+                    "start_pos": start_pos,
+                    "window_size": window_size,
+                })
+            del repeated_key_states
+            del attn_weights
+            gc.collect()
+            torch.cuda.empty_cache()
+
 
         # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
         # to be able to avoid many of these transpose/reshape/view.
