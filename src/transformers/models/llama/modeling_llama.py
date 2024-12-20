@@ -51,6 +51,7 @@ from ...utils import (
 )
 from .configuration_llama import LlamaConfig
 import gc
+from .fa_cross import streaming_cross_attention
 
 logger = logging.get_logger(__name__)
 
@@ -375,6 +376,7 @@ class LlamaFlashAttention2(LlamaAttention):
         self.debug_info = {}
         self.debug_attention_query_list = []
         self.debug_attention_query_aggfunc = "mean"
+        self.exp_setting = {}
 
 
     def forward(
@@ -495,19 +497,32 @@ class LlamaFlashAttention2(LlamaAttention):
             key_states = key_states.to(target_dtype)
             value_states = value_states.to(target_dtype)
 
-        attn_output = _flash_attention_forward(
-            query_states,
-            key_states,
-            value_states,
-            attention_mask,
-            q_len,
-            position_ids=position_ids,
-            dropout=dropout_rate,
-            sliding_window=getattr(self, "sliding_window", None),
-            use_top_left_mask=self._flash_attn_uses_top_left_mask,
-            is_causal=self.is_causal,
-            **kwargs,
-        )
+        if "enable_anchor_cross" in self.exp_setting and self.exp_setting["enable_anchor_cross"] is True and q_len > 1 and self.layer_idx >= self.exp_setting["start_layer_idx"]:
+            # 必须满足：（1）开启了 enable_anchor_cross （2）encode 阶段 （3） 大于 start_layer_idx，那么使用新的 anchor_cross_attention
+            print("streaming_cross_attention on q_len: {}".format(q_len))
+            attn_output = streaming_cross_attention(
+                query_states,
+                key_states,
+                value_states,
+                self.exp_setting["sink_tokens"],
+                self.exp_setting["sliding_window"],
+                self.real_anchor_indices,
+                self.real_anchor_indices,
+            )
+        else:
+            attn_output = _flash_attention_forward(
+                query_states,
+                key_states,
+                value_states,
+                attention_mask,
+                q_len,
+                position_ids=position_ids,
+                dropout=dropout_rate,
+                sliding_window=getattr(self, "sliding_window", None),
+                use_top_left_mask=self._flash_attn_uses_top_left_mask,
+                is_causal=self.is_causal,
+                **kwargs,
+            )
 
         attn_output = attn_output.reshape(bsz, q_len, -1).contiguous()
         attn_output = self.o_proj(attn_output)
