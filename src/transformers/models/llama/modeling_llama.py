@@ -499,7 +499,7 @@ class LlamaFlashAttention2(LlamaAttention):
             key_states = key_states.to(target_dtype)
             value_states = value_states.to(target_dtype)
 
-        print("layer_idx", self.layer_idx, "initial query_states shape", query_states.shape, "key_states shape", key_states.shape)
+        print("layer_idx", self.layer_idx, "pre-attn query_states shape", query_states.shape, "key_states shape", key_states.shape)
 
         if "enable_anchor_cross" in self.exp_setting and self.exp_setting["enable_anchor_cross"] is True and q_len > 1 and self.layer_idx >= self.exp_setting["start_layer_idx"]:
             # 必须满足：（1）开启了 enable_anchor_cross （2）encode 阶段 （3） 大于 start_layer_idx，那么使用新的 anchor_cross_attention
