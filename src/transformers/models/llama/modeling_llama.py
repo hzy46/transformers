@@ -504,16 +504,44 @@ class LlamaFlashAttention2(LlamaAttention):
 
         if "enable_anchor_cross" in self.exp_setting and self.exp_setting["enable_anchor_cross"] is True and q_len > 1 and self.layer_idx >= self.exp_setting["start_layer_idx"]:
             # 必须满足：（1）开启了 enable_anchor_cross （2）encode 阶段 （3） 大于 start_layer_idx，那么使用新的 anchor_cross_attention
-            print("streaming_cross_attention on q_len: {}".format(q_len))
-            attn_output = streaming_cross_attention(
-                query_states,
-                key_states,
-                value_states,
-                self.exp_setting["sink_tokens"],
-                self.exp_setting["sliding_window"],
-                self.real_anchor_indices,
-                self.real_anchor_indices,
-            )
+            only_v = self.exp_setting.get("only_v", False)
+            only_h = self.exp_setting.get("only_h", False)
+
+            if only_v is False and only_h is False:
+                print("streaming_cross_attention on q_len: {} cross".format(q_len))
+                attn_output = streaming_cross_attention(
+                    query_states,
+                    key_states,
+                    value_states,
+                    self.exp_setting["sink_tokens"],
+                    self.exp_setting["sliding_window"],
+                    self.real_anchor_indices,
+                    self.real_anchor_indices,
+                )
+            elif only_v is True and only_h is False:
+                print("streaming_cross_attention on q_len: {} only vertical".format(q_len))
+                attn_output = streaming_cross_attention(
+                    query_states,
+                    key_states,
+                    value_states,
+                    self.exp_setting["sink_tokens"],
+                    self.exp_setting["sliding_window"],
+                    [], # row is empty
+                    self.real_anchor_indices,
+                )
+            elif only_h is False and only_h is True:
+                print("streaming_cross_attention on q_len: {} only horizontal".format(q_len))
+                attn_output = streaming_cross_attention(
+                    query_states,
+                    key_states,
+                    value_states,
+                    self.exp_setting["sink_tokens"],
+                    self.exp_setting["sliding_window"],
+                    self.real_anchor_indices,
+                    [], # row is empty
+                )
+            else:
+                raise NotImplementedError
         else:
             attn_output = _flash_attention_forward(
                 query_states,
