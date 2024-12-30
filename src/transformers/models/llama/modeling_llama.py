@@ -529,7 +529,7 @@ class LlamaFlashAttention2(LlamaAttention):
                     [], # row is empty
                     self.real_anchor_indices,
                 )
-            elif only_h is False and only_h is True:
+            elif only_v is False and only_h is True:
                 print("streaming_cross_attention on q_len: {} only horizontal".format(q_len))
                 attn_output = streaming_cross_attention(
                     query_states,
@@ -538,7 +538,7 @@ class LlamaFlashAttention2(LlamaAttention):
                     self.exp_setting["sink_tokens"],
                     self.exp_setting["sliding_window"],
                     self.real_anchor_indices,
-                    [], # row is empty
+                    [], # col is empty
                 )
             else:
                 raise NotImplementedError
