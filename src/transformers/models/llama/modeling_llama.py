@@ -511,10 +511,10 @@ class LlamaFlashAttention2(LlamaAttention):
 
         if "enable_anchor_cross" in self.exp_setting and self.exp_setting["enable_anchor_cross"] is True and q_len > 1 and self.layer_idx >= self.exp_setting["start_layer_idx"]:
             # 不支持 mqa，先 repeat 一下
-            print("self.num_key_value_groups", self.num_key_value_groups, "before repeat key_states", key_states.shape)
+            # print("self.num_key_value_groups", self.num_key_value_groups, "before repeat key_states", key_states.shape)
             key_states = repeat_kv_after_transpose(key_states, self.num_key_value_groups)
             value_states = repeat_kv_after_transpose(value_states, self.num_key_value_groups)
-            print("after repeat key_states", key_states.shape)
+            # print("after repeat key_states", key_states.shape)
 
             # 必须满足：（1）开启了 enable_anchor_cross （2）encode 阶段 （3） 大于 start_layer_idx，那么使用新的 anchor_cross_attention
             only_v = self.exp_setting.get("only_v", False)
@@ -522,7 +522,7 @@ class LlamaFlashAttention2(LlamaAttention):
 
             if only_v is False and only_h is False:
                 print("streaming_cross_attention on q_len: {} cross".format(q_len))
-                print("query_states:", query_states.shape, "key_states:", key_states.shape, "value_states", value_states.shape)
+                # print("query_states:", query_states.shape, "key_states:", key_states.shape, "value_states", value_states.shape)
                 attn_output = streaming_cross_attention(
                     query_states,
                     key_states,
