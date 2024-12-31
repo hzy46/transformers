@@ -255,6 +255,13 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
     hidden_states = hidden_states[:, :, None, :, :].expand(batch, num_key_value_heads, n_rep, slen, head_dim)
     return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
+def repeat_kv_after_transpose(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
+    batch, slen, num_key_value_heads, head_dim = hidden_states.shape
+    if n_rep == 1:
+        return hidden_states
+    hidden_states = hidden_states[:, :, :, None, :].expand(batch, slen, num_key_value_heads, n_rep, head_dim)
+    return hidden_states.reshape(batch, slen, num_key_value_heads * n_rep, head_dim)
+
 
 class LlamaAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
@@ -504,8 +511,10 @@ class LlamaFlashAttention2(LlamaAttention):
 
         if "enable_anchor_cross" in self.exp_setting and self.exp_setting["enable_anchor_cross"] is True and q_len > 1 and self.layer_idx >= self.exp_setting["start_layer_idx"]:
             # 不支持 mqa，先 repeat 一下
-            key_states = repeat_kv(key_states, self.num_key_value_groups)
-            value_states = repeat_kv(value_states, self.num_key_value_groups)
+            print("self.num_key_value_groups", self.num_key_value_groups, "before repeat key_states", key_states.shape)
+            key_states = repeat_kv_after_transpose(key_states, self.num_key_value_groups)
+            value_states = repeat_kv_after_transpose(value_states, self.num_key_value_groups)
+            print("after repeat key_states", key_states.shape)
 
             # 必须满足：（1）开启了 enable_anchor_cross （2）encode 阶段 （3） 大于 start_layer_idx，那么使用新的 anchor_cross_attention
             only_v = self.exp_setting.get("only_v", False)
