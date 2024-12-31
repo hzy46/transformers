@@ -455,6 +455,6 @@ def test_cross_attn(
 
 
 if __name__ == '__main__':
-    test_cross_attn(1, 4321, 1, 128, 123, 456, 123, 456, torch_check=True, profile=False)
-    test_cross_attn(1, 131072, 32, 128, 1024, 1024, 1024, 1024, torch_check=False, profile=True)
-    test_cross_attn(1, 128745, 32, 128, 1234, 4321, 2345, 5432, torch_check=False, profile=True)
+    test_cross_attn(1, 1993, 32, 128, 128, 64, 10, 10, torch_check=True, profile=False)
+    # test_cross_attn(1, 131072, 32, 128, 1024, 1024, 1024, 1024, torch_check=False, profile=True)
+    # test_cross_attn(1, 128745, 32, 128, 1234, 4321, 2345, 5432, torch_check=False, profile=True)
