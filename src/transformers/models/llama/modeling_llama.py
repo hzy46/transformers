@@ -509,6 +509,7 @@ class LlamaFlashAttention2(LlamaAttention):
 
             if only_v is False and only_h is False:
                 print("streaming_cross_attention on q_len: {} cross".format(q_len))
+                print("query_states:", query_states.shape, "key_states:", key_states.shape, "value_states", value_states.shape)
                 attn_output = streaming_cross_attention(
                     query_states,
                     key_states,
