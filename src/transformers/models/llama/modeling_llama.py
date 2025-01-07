@@ -953,6 +953,14 @@ class LlamaModel(LlamaPreTrainedModel):
         # Initialize weights and apply final processing
         self.post_init()
 
+    def reset_all_layer_attention_multiplier(self):
+        for layer_idx in range(len(self.layers)):
+            self.layers[layer_idx].self_attn.reset_attention_multiplier()
+
+    def reset_all_layer_tracking_attention_mask_and_multiplier(self):
+        for layer_idx in range(len(self.layers)):
+            self.layers[layer_idx].self_attn.reset_tracking_attention_mask_and_multiplier()
+
     def get_input_embeddings(self):
         return self.embed_tokens
 
