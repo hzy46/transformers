@@ -544,7 +544,6 @@ class LlamaFlashAttention2(LlamaAttention):
 
         if "enable_asym" in self.exp_setting and self.exp_setting["enable_asym"] is True and q_len > 1:
             # [batch_size, sequence_length, num_heads, head_dim]
-            print("enable_asym")
             key_states = repeat_kv_after_transpose(key_states, self.num_key_value_groups)
             value_states = repeat_kv_after_transpose(value_states, self.num_key_value_groups)
             head_configs = self.exp_setting["head_configs"]
@@ -583,6 +582,16 @@ class LlamaFlashAttention2(LlamaAttention):
                 attn_output_list.append(part_attn_output)
             attn_output = torch.concat(attn_output_list, dim=2)
 
+            # discard_kv_cache
+            key_head_configs = self.exp_setting["key_head_configs"]
+            for key_head_idx in range(self.num_key_value_heads):
+                if key_head_configs[key_head_idx]["is_discard"] is True:
+                    past_key_value.clear_kv_cache(
+                        self.layer_idx, 
+                        key_head_idx,
+                        key_head_configs[key_head_idx]["sink_tokens"], 
+                        key_head_configs[key_head_idx]["sliding_window"], 
+                    )
 
         elif "enable_anchor_cross" in self.exp_setting and self.exp_setting["enable_anchor_cross"] is True and q_len > 1 and self.layer_idx >= self.exp_setting["start_layer_idx"]:
             # 不支持 mqa，先 repeat 一下

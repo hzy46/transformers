@@ -404,6 +404,18 @@ class DynamicCache(Cache):
         """
         return len(self.key_cache)
 
+    def clear_kv_cache(
+            self, 
+            layer_idx, 
+            key_head_idx,
+            sink_tokens, 
+            sliding_window, 
+        ):
+        print("clear_kv_cache:", layer_idx, key_head_idx, sink_tokens, sliding_window)
+        print(self.key_cache[layer_idx].shape)
+        print(self.value_cache[layer_idx].shape)
+
+
     def update(
         self,
         key_states: torch.Tensor,
