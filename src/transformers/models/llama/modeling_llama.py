@@ -295,6 +295,24 @@ class LlamaAttention(nn.Module):
         # TODO (joao): remove in v4.46 (RoPE is computed in the model, not in the decoder layers)
         self.rotary_emb = LlamaRotaryEmbedding(config=self.config)
 
+        self.attention_multiplier = None
+        self.tracking_attention_mask_and_multiplier = None
+
+
+    def set_tracking_attention_mask_and_multiplier(self, tracking_attention_mask, multiplier):
+        # tracking_attention_mask 应该是 torch.bool 类型，形状是 (seq_len, seq_len), 1 的 地方表示要 track，0 的地方表示不 track
+        # multiplier 应该是 torch.float16 类型，形状是 (head_num, )，表示这一层每一个 head 的辅助变量
+        self.tracking_attention_mask_and_multiplier = tracking_attention_mask, multiplier
+
+    def reset_tracking_attention_mask_and_multiplier(self):
+        self.tracking_attention_mask_and_multiplier = None
+
+    def set_full_attention_multiplier(self, multiplier):
+        self.attention_multiplier = multiplier
+
+    def reset_attention_multiplier(self):
+        self.attention_multiplier = None
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -345,6 +363,23 @@ class LlamaAttention(nn.Module):
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+        
+        # add query
+        if self.attention_multiplier is not None:
+            # apply multiplier
+            attn_weights = attn_weights * self.attention_multiplier
+
+        if self.tracking_attention_mask_and_multiplier is not None:
+            tracking_attention_mask, tracking_multiplier = self.tracking_attention_mask_and_multiplier
+            # attn_weights 是 (batch_size, head_dim, seq_len, seq_len)
+            # 变成 (1, 1, seq_len, seq_len)
+            tracking_attention_mask = tracking_attention_mask.unsqueeze(0).unsqueeze(0) 
+            # 变成 (1, 32, 1, 1)
+            tracking_multiplier = tracking_multiplier.reshape(1, tracking_multiplier.shape[0], 1, 1)
+            # mask 是 1 的话，取tracking_multiplier * attn_weights，否则，还是原来的
+            attn_weights = torch.where(tracking_attention_mask, tracking_multiplier * attn_weights, attn_weights)
+
+
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
         attn_output = torch.matmul(attn_weights, value_states)
 
