@@ -555,10 +555,6 @@ class LlamaFlashAttention2(LlamaAttention):
                 part_key_states = key_states[:, :, head_idx, None, :]
                 part_value_states = value_states[:, :, head_idx, None, :]
                 if head_configs[head_idx]["encode_type"] == "full":
-                    print(part_query_states.shape)
-                    print(part_key_states.shape)
-                    print(part_value_states.shape)
-                    print(position_ids.shape)
                     part_attn_output = _flash_attention_forward(
                         part_query_states,
                         part_key_states,
@@ -573,8 +569,6 @@ class LlamaFlashAttention2(LlamaAttention):
                         **kwargs,
                     )
                 elif head_configs[head_idx]["encode_type"] == "streaming_llm":
-                    sink_tokens = self.exp_setting["sink_tokens"]
-                    sliding_window = self.exp_setting["sliding_window"]
                     part_attn_output = streaming_cross_attention(
                         part_query_states,
                         part_key_states,
@@ -587,8 +581,7 @@ class LlamaFlashAttention2(LlamaAttention):
                 else:
                     raise NotImplementedError
                 attn_output_list.append(part_attn_output)
-            print("attn_output_list[0]", attn_output_list[0].shape)
-            raise Exception
+            attn_output = torch.concat(attn_output_list, dim=2)
 
 
         elif "enable_anchor_cross" in self.exp_setting and self.exp_setting["enable_anchor_cross"] is True and q_len > 1 and self.layer_idx >= self.exp_setting["start_layer_idx"]:
