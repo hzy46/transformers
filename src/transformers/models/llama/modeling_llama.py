@@ -552,13 +552,12 @@ class LlamaFlashAttention2(LlamaAttention):
             attn_output_list = []
             for head_idx in range(self.num_heads):
                 part_query_states = query_states[:, :, head_idx, None, :]
-                part_key_states = key_states[:, :, head_idx, None :]
+                part_key_states = key_states[:, :, head_idx, None, :]
                 part_value_states = value_states[:, :, head_idx, None, :]
                 if head_configs[head_idx]["encode_type"] == "full":
                     print(part_query_states.shape)
                     print(part_key_states.shape)
                     print(part_value_states.shape)
-                    print(attention_mask.shape)
                     print(position_ids.shape)
                     part_attn_output = _flash_attention_forward(
                         part_query_states,
