@@ -551,9 +551,9 @@ class LlamaFlashAttention2(LlamaAttention):
             # q head 总数
             attn_output_list = []
             for head_idx in range(self.num_heads):
-                part_query_states = query_states[:, :, head_idx, :]
-                part_key_states = key_states[:, :, head_idx, :]
-                part_value_states = value_states[:, :, head_idx, :]
+                part_query_states = query_states[:, :, head_idx, None, :]
+                part_key_states = key_states[:, :, head_idx, None :]
+                part_value_states = value_states[:, :, head_idx, None, :]
                 if head_configs[head_idx]["encode_type"] == "full":
                     print(part_query_states.shape)
                     print(part_key_states.shape)
