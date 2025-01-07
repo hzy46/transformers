@@ -541,10 +541,53 @@ class LlamaFlashAttention2(LlamaAttention):
             key_states = key_states.to(target_dtype)
             value_states = value_states.to(target_dtype)
 
-        # if int(self.layer_idx) == 0:
-        #     print("layer_idx", self.layer_idx, "pre-attn query_states shape", query_states.shape, "key_states shape", key_states.shape)
 
-        if "enable_anchor_cross" in self.exp_setting and self.exp_setting["enable_anchor_cross"] is True and q_len > 1 and self.layer_idx >= self.exp_setting["start_layer_idx"]:
+        if "enable_asym" in self.exp_setting and self.exp_setting["enable_asym"] is True and q_len > 1:
+            # [batch_size, sequence_length, num_heads, head_dim]
+            print("enable_asym")
+            key_states = repeat_kv_after_transpose(key_states, self.num_key_value_groups)
+            value_states = repeat_kv_after_transpose(value_states, self.num_key_value_groups)
+            head_configs = self.exp_setting["head_configs"]
+            # q head 总数
+            attn_output_list = []
+            for head_idx in range(self.num_heads):
+                part_query_states = query_states[:, :, head_idx, :]
+                part_key_states = key_states[:, :, head_idx, :]
+                part_value_states = value_states[:, :, head_idx, :]
+                if head_configs[head_idx]["encode_type"] == "full":
+                    part_attn_output = _flash_attention_forward(
+                        part_query_states,
+                        part_key_states,
+                        part_value_states,
+                        attention_mask,
+                        q_len,
+                        position_ids=position_ids,
+                        dropout=dropout_rate,
+                        sliding_window=getattr(self, "sliding_window", None),
+                        use_top_left_mask=self._flash_attn_uses_top_left_mask,
+                        is_causal=self.is_causal,
+                        **kwargs,
+                    )
+                elif head_configs[head_idx]["encode_type"] == "streaming_llm":
+                    sink_tokens = self.exp_setting["sink_tokens"]
+                    sliding_window = self.exp_setting["sliding_window"]
+                    part_attn_output = streaming_cross_attention(
+                        part_query_states,
+                        part_key_states,
+                        part_value_states,
+                        sink_tokens,
+                        sliding_window,
+                        [],
+                        [],
+                    )
+                else:
+                    raise NotImplementedError
+                attn_output_list.append(part_attn_output)
+            print("attn_output_list[0]", attn_output_list[0].shape)
+            raise Exception
+
+
+        elif "enable_anchor_cross" in self.exp_setting and self.exp_setting["enable_anchor_cross"] is True and q_len > 1 and self.layer_idx >= self.exp_setting["start_layer_idx"]:
             # 不支持 mqa，先 repeat 一下
             # print("self.num_key_value_groups", self.num_key_value_groups, "before repeat key_states", key_states.shape)
             key_states = repeat_kv_after_transpose(key_states, self.num_key_value_groups)
