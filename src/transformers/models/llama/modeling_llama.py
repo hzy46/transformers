@@ -555,6 +555,11 @@ class LlamaFlashAttention2(LlamaAttention):
                 part_key_states = key_states[:, :, head_idx, :]
                 part_value_states = value_states[:, :, head_idx, :]
                 if head_configs[head_idx]["encode_type"] == "full":
+                    print(part_query_states.shape)
+                    print(part_key_states.shape)
+                    print(part_value_states.shape)
+                    print(attention_mask.shape)
+                    print(position_ids.shape)
                     part_attn_output = _flash_attention_forward(
                         part_query_states,
                         part_key_states,
@@ -575,8 +580,8 @@ class LlamaFlashAttention2(LlamaAttention):
                         part_query_states,
                         part_key_states,
                         part_value_states,
-                        sink_tokens,
-                        sliding_window,
+                        head_configs[head_idx]["sink_tokens"],
+                        head_configs[head_idx]["sliding_window"],
                         [],
                         [],
                     )
