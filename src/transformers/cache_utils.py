@@ -411,9 +411,13 @@ class DynamicCache(Cache):
             sink_tokens, 
             sliding_window, 
         ):
-        print("clear_kv_cache:", layer_idx, key_head_idx, sink_tokens, sliding_window)
-        print(self.key_cache[layer_idx].shape)
-        print(self.value_cache[layer_idx].shape)
+        k_cache = self.key_cache[layer_idx]        
+        _, _, seq_len, _ = k_cache.shape
+        if sink_tokens + sliding_window >= seq_len:
+            pass
+        else:
+            mean_k = torch.mean(k_cache[:, key_head_idx, sink_tokens:-sliding_window, :], dim=1)
+            k_cache[:, key_head_idx, sink_tokens:-sliding_window, :] = mean_k
 
 
     def update(
