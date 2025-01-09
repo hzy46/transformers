@@ -331,7 +331,6 @@ def streaming_cross_attention(
         assert one_idx < N - sliding_window
     # added by zhiyuan
     batch_size, context_size, num_heads, head_dim = query.shape
-    print(context_size, query.device)
     seqlens = torch.tensor([context_size], dtype=torch.int32, device=query.device)
     sm_scale = head_dim ** -0.5
 
