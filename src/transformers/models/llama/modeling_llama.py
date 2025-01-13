@@ -297,12 +297,22 @@ class LlamaAttention(nn.Module):
 
         self.attention_multiplier = None
         self.tracking_attention_mask_and_multiplier = None
+        self.tracking_logit_info_list = []
 
 
     def set_tracking_attention_mask_and_multiplier(self, tracking_attention_mask, multiplier):
         # tracking_attention_mask 应该是 torch.bool 类型，形状是 (seq_len, seq_len), 1 的 地方表示要 track，0 的地方表示不 track
         # multiplier 应该是 torch.float16 类型，形状是 (head_num, )，表示这一层每一个 head 的辅助变量
         self.tracking_attention_mask_and_multiplier = tracking_attention_mask, multiplier
+
+    def set_tracking_logit_info_list(self, tracking_logit_info_list):
+        # info_list 的每个元素：{"mask": <mask>, "multiplier": <multiplier>}
+        # mask 应该是 torch.bool 类型，形状是 (seq_len, seq_len), 1 的 地方表示要 track，0 的地方表示不 track
+        # multiplier 应该是 torch.float16 类型，形状是 (head_num, )，表示这一层每一个 head 的辅助变量，实际会加到 logit 上面
+        self.tracking_logit_info_list = tracking_logit_info_list
+
+    def reset_tracking_logit_info_list(self):
+        self.tracking_logit_info_list = []
 
     def reset_tracking_attention_mask_and_multiplier(self):
         self.tracking_attention_mask_and_multiplier = None
@@ -312,6 +322,7 @@ class LlamaAttention(nn.Module):
 
     def reset_attention_multiplier(self):
         self.attention_multiplier = None
+
 
     def forward(
         self,
@@ -361,6 +372,8 @@ class LlamaAttention(nn.Module):
             causal_mask = attention_mask[:, :, :, : key_states.shape[-2]]
             attn_weights = attn_weights + causal_mask
 
+
+
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
         
@@ -378,6 +391,18 @@ class LlamaAttention(nn.Module):
             tracking_multiplier = tracking_multiplier.reshape(1, tracking_multiplier.shape[0], 1, 1)
             # mask 是 1 的话，取tracking_multiplier * attn_weights，否则，还是原来的
             attn_weights = torch.where(tracking_attention_mask, tracking_multiplier * attn_weights, attn_weights)
+
+        if len(self.tracking_logit_info_list) > 0:
+            for one_info in self.tracking_logit_info_list:
+                tracking_mask = one_info["mask"]
+                tracking_multiplier = one_info["multiplier"]
+                # attn_weights 是 (batch_size, head_dim, seq_len, seq_len)
+                # 变成 (1, 1, seq_len, seq_len)
+                tracking_mask = tracking_mask.unsqueeze(0).unsqueeze(0)
+                # 变成 (1, 32, 1, 1)
+                tracking_multiplier = tracking_multiplier.reshape(1, tracking_multiplier.shape[0], 1, 1)
+                # mask 是 1 的话，取attn_weights * tracking_multiplier，否则，还是原来的
+                attn_weights = torch.where(tracking_attention_mask, attn_weights * tracking_multiplier, attn_weights)
 
 
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
@@ -1009,6 +1034,10 @@ class LlamaModel(LlamaPreTrainedModel):
     def reset_all_layer_tracking_attention_mask_and_multiplier(self):
         for layer_idx in range(len(self.layers)):
             self.layers[layer_idx].self_attn.reset_tracking_attention_mask_and_multiplier()
+
+    def reset_all_layer_tracking_logit_info_list(self):
+        for layer_idx in range(len(self.layers)):
+            self.layers[layer_idx].self_attn.reset_tracking_logit_info_list()
 
     def get_input_embeddings(self):
         return self.embed_tokens
