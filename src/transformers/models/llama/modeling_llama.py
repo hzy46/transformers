@@ -83,7 +83,7 @@ def partial_row_normalize(attn_weights: torch.Tensor) -> torch.Tensor:
     # 1) 构造下三角 mask：保证第 i 行只保留前 i 个元素
     #    即 (col <= row) 的位置为 1，否则为 0
     device = attn_weights.device
-    mask = torch.tril(torch.ones(S, S, device=device), diagonal=0)  # (S, S)
+    mask = torch.tril(torch.ones(S, S, device=device, dtype=attn_weights.dtype), diagonal=0)  # (S, S)
     mask = mask.unsqueeze(0).unsqueeze(0)                           # (1, 1, S, S)
 
     # 2) 用下三角 mask “屏蔽”掉不需要的部分（行 i 只保留前 i 列）
