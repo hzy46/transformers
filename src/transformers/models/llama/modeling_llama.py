@@ -93,10 +93,7 @@ def partial_row_normalize(attn_weights: torch.Tensor) -> torch.Tensor:
     partial_sums = attn_weights_masked.cumsum(dim=-1)  # (B, H, S, S)
 
     # 4) 取出每行的累加和（即第 i 行前 i 列元素之和）
-    row_sum = partial_sums[..., torch.arange(S), torch.arange(S)]  # (B, H, S)
-
-    # 5) 第一行不变：将第一行的除数强制设为 1，避免归一化改变第 1 行
-    row_sum[..., 0] = 1.0
+    row_sum = partial_sums[..., -1]  # (B, H, S)
 
     # 6) 做除法归一化并返回结果
     attn_weights_normed = attn_weights_masked / row_sum.unsqueeze(-1)  # (B, H, S, S)
