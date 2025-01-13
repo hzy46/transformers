@@ -402,7 +402,7 @@ class LlamaAttention(nn.Module):
                 # 变成 (1, 32, 1, 1)
                 tracking_multiplier = tracking_multiplier.reshape(1, tracking_multiplier.shape[0], 1, 1)
                 # mask 是 1 的话，取attn_weights * tracking_multiplier，否则，还是原来的
-                attn_weights = torch.where(tracking_attention_mask, attn_weights * tracking_multiplier, attn_weights)
+                attn_weights = torch.where(tracking_mask, attn_weights * tracking_multiplier, attn_weights)
 
 
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
