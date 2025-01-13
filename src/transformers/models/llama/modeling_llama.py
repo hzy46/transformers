@@ -58,6 +58,51 @@ logger = logging.get_logger(__name__)
 _CHECKPOINT_FOR_DOC = "meta-llama/Llama-2-7b-hf"
 _CONFIG_FOR_DOC = "LlamaConfig"
 
+def partial_row_normalize(attn_weights: torch.Tensor) -> torch.Tensor:
+    """
+    对输入的 attn_weights (batch_size, head_dim, seq_len, seq_len) 的最后两维进行如下归一化：
+    1) 第 1 行保持不变；
+    2) 第 i 行（i 从 1 开始计数）只累加第 1~i 列的元素，然后将这 i 个元素除以它们的总和；
+    3) 行 i 之外的列元素置 0。
+
+    参数:
+    attn_weights: torch.Tensor, 形状为 (B, H, S, S)
+
+    返回:
+    attn_weights_normed: torch.Tensor, 与 attn_weights 同形状，
+                         满足上述归一化需求后的结果
+    """
+
+    # 检查输入
+    if attn_weights.dim() != 4:
+        raise ValueError(f"attn_weights 需要是 4 维 (B, H, S, S)，但得到 shape={attn_weights.shape}。")
+    B, H, S, S2 = attn_weights.shape
+    if S != S2:
+        raise ValueError(f"最后两维形状必须相同 (S, S)，但得到 shape=({S}, {S2})。")
+
+    # 1) 构造下三角 mask：保证第 i 行只保留前 i 个元素
+    #    即 (col <= row) 的位置为 1，否则为 0
+    device = attn_weights.device
+    mask = torch.tril(torch.ones(S, S, device=device), diagonal=0)  # (S, S)
+    mask = mask.unsqueeze(0).unsqueeze(0)                           # (1, 1, S, S)
+
+    # 2) 用下三角 mask “屏蔽”掉不需要的部分（行 i 只保留前 i 列）
+    attn_weights_masked = attn_weights * mask  # (B, H, S, S)
+
+    # 3) 沿着最后一维（列维度）做累加和
+    partial_sums = attn_weights_masked.cumsum(dim=-1)  # (B, H, S, S)
+
+    # 4) 取出每行的累加和（即第 i 行前 i 列元素之和）
+    row_sum = partial_sums[..., torch.arange(S), torch.arange(S)]  # (B, H, S)
+
+    # 5) 第一行不变：将第一行的除数强制设为 1，避免归一化改变第 1 行
+    row_sum[..., 0] = 1.0
+
+    # 6) 做除法归一化并返回结果
+    attn_weights_normed = attn_weights_masked / row_sum.unsqueeze(-1)  # (B, H, S, S)
+
+    return attn_weights_normed
+
 
 class LlamaRMSNorm(nn.Module):
     def __init__(self, hidden_size, eps=1e-6):
@@ -403,6 +448,8 @@ class LlamaAttention(nn.Module):
                 tracking_multiplier = tracking_multiplier.reshape(1, tracking_multiplier.shape[0], 1, 1)
                 # mask 是 1 的话，取attn_weights * tracking_multiplier，否则，还是原来的
                 attn_weights = torch.where(tracking_mask, attn_weights * tracking_multiplier, attn_weights)
+                # 按照行归一化：
+                attn_weights = partial_row_normalize(attn_weights)
 
 
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
