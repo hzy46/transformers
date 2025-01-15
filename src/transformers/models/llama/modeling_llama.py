@@ -509,7 +509,13 @@ class LlamaFlashAttention2(LlamaAttention):
         self.debug_attention_query_list = []
         self.debug_attention_query_aggfunc = "mean"
         self.exp_setting = {}
+        self.per_head_info_query_list = []
 
+    def set_per_head_info_query_list(self, per_head_info_query_list):
+        self.per_head_info_query_list = per_head_info_query_list
+
+    def reset_per_head_info_query_list(self):
+        self.per_head_info_query_list = []
 
     def forward(
         self,
@@ -595,6 +601,39 @@ class LlamaFlashAttention2(LlamaAttention):
             del attn_weights
             gc.collect()
             torch.cuda.empty_cache()
+
+        if len(self.per_head_info_query_list) > 0:
+            self.debug_info["per_head_info_list"] = []
+            for head_info in self.per_head_info_query_list:
+                head_idx = head_info["head_idx"]
+                print(f"collect attention map for layer {self.layer_idx} head {head_idx}...")
+                assert bsz == 1
+                window_size = 32
+                assert q_len > window_size
+                # query_states is (batch size, head_num, q_len, head_dim)
+                # head_query_states is (q_len, head_dim)
+                head_query_states = query_states[0, head_idx, :, :]
+                # last_head_query_states is (window_size, head_dim)
+                last_head_query_states = head_query_states[q_len - window_size:, :]
+                print("self.num_key_value_groups: ", self.num_key_value_groups)
+                # head_key_states is (q_len, head_dim)
+                head_key_states = key_states[0, head_idx // self.num_key_value_groups, :, :]
+                attn_weights = torch.matmul(last_head_query_states, head_key_states.transpose(0, 1)) / math.sqrt(self.head_dim)
+                # some code copied from SnapKV
+                mask = torch.full((window_size, window_size), torch.finfo(attn_weights.dtype).min, device=attn_weights.device)
+                mask_cond = torch.arange(mask.size(-1), device=attn_weights.device)
+                mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
+                mask = mask.to(attn_weights.device)
+                print("mask:", mask)
+                attn_weights[-window_size:, -window_size:] += mask
+                attn_weights = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+                self.debug_info["per_head_info_list"].append({
+                    "head_idx": head_idx,
+                    "last_score_map": attn_weights.detach().cpu().numpy(),
+                    "last_head_query_states": last_head_query_states.detach().cpu().numpy(),
+                    "head_key_states": head_key_states.detach().cpu().numpy(),
+                })
+
 
 
         # TODO: These transpose are quite inefficient but Flash Attention requires the layout [batch_size, sequence_length, num_heads, head_dim]. We would need to refactor the KV cache
