@@ -435,7 +435,7 @@ class LlamaAttention(nn.Module):
                 print(f"collect attention map for layer {self.layer_idx} head {head_idx}...")
                 assert bsz == 1
                 self.debug_info["per_head_attention_map_list"].append({
-                    "data": attn_weights[0, head_idx, :, :].detach().cpu()numpy(),
+                    "data": attn_weights[0, head_idx, :, :].detach().cpu().numpy(),
                     "head_idx": head_idx,
                 })
 
