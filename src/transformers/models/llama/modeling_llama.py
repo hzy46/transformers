@@ -340,6 +340,9 @@ class LlamaAttention(nn.Module):
         self.attention_multiplier = None
         self.tracking_attention_mask_and_multiplier = None
         self.tracking_logit_info_list = []
+        # [{"head_idx": xx}, {"head_idx": yyy}]
+        self.per_head_attention_map_query_list = []
+        self.debug_info = {}
 
 
     def set_tracking_attention_mask_and_multiplier(self, tracking_attention_mask, multiplier):
@@ -352,6 +355,12 @@ class LlamaAttention(nn.Module):
         # mask 应该是 torch.bool 类型，形状是 (seq_len, seq_len), 1 的 地方表示要 track，0 的地方表示不 track
         # multiplier 应该是 torch.float16 类型，形状是 (head_num, )，表示这一层每一个 head 的辅助变量，实际会加到 logit 上面
         self.tracking_logit_info_list = tracking_logit_info_list
+
+    def set_per_head_attention_map_query_list(self, per_head_attention_map_query_list):
+        self.per_head_attention_map_query_list = per_head_attention_map_query_list
+
+    def reset_per_head_attention_map_query_list(self):
+        self.per_head_attention_map_query_list = []
 
     def reset_tracking_logit_info_list(self):
         self.tracking_logit_info_list = []
@@ -418,7 +427,18 @@ class LlamaAttention(nn.Module):
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
-        
+
+        if len(self.per_head_attention_map_query_list) > 0:
+            self.debug_info["per_head_attention_map_list"] = []
+            for head_info in self.per_head_attention_map_query_list:
+                head_idx = head_info["head_idx"]
+                print(f"collect attention map for layer {self.layer_idx} head {head_idx}...")
+                assert bsz == 1
+                self.debug_info["per_head_attention_map_list"].append({
+                    "data": attn_weights[0, head_idx, :, :].detach().cpu()numpy(),
+                    "head_idx": head_idx,
+                })
+
         # add query
         if self.attention_multiplier is not None:
             # apply multiplier
@@ -457,6 +477,7 @@ class LlamaAttention(nn.Module):
                 f"`attn_output` should be of size {(bsz, self.num_heads, q_len, self.head_dim)}, but is"
                 f" {attn_output.size()}"
             )
+
 
         attn_output = attn_output.transpose(1, 2).contiguous()
 
