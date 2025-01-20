@@ -640,7 +640,6 @@ class LlamaFlashAttention2(LlamaAttention):
                 print(f"collect attention map for layer {self.layer_idx} head {head_idx}...")
                 assert bsz == 1
                 window_size = 32
-                assert q_len > window_size
                 # last_head_query_states is (1, head_dim)
                 last_head_query_states = query_states[0, head_idx, :, :]
                 # head_key_states is (q_len, head_dim)
