@@ -446,7 +446,7 @@ class Qwen2FlashAttention2(Qwen2Attention):
                 # attention weights: [1, head_num, window_size, seq_len]
                 attn_scores = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
                 self.debug_info["attention_query_ret_list"].append({
-                    "attn_scores": attn_scores,
+                    "attn_scores": attn_scores.detach().type(torch.float32).cpu().numpy(),
                     "start_pos": start_pos,
                     "window_size": window_size,
                 })
