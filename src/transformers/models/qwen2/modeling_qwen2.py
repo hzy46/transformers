@@ -431,7 +431,8 @@ class Qwen2FlashAttention2(Qwen2Attention):
         if "debug_attention_query_list" in debug_setting and len(debug_setting["debug_attention_query_list"]) > 0:
             debug_attention_query_list = debug_setting["debug_attention_query_list"]
             repeated_key_states = key_states
-            for one_query in self.debug_attention_query_list:
+            self.debug_info["attention_query_ret_list"] = []
+            for one_query in debug_attention_query_list:
                 start_pos = one_query["start_pos"]
                 window_size = one_query["window_size"]
                 attn_weights = torch.matmul(query_states[..., start_pos:start_pos + window_size, :], repeated_key_states[..., :start_pos + window_size, :].transpose(2, 3)) / math.sqrt(self.head_dim)
