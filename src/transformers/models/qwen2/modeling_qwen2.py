@@ -360,6 +360,7 @@ class Qwen2FlashAttention2(Qwen2Attention):
         # flash_attn<2.1 generates top-left aligned causal mask, while what is needed here is bottom-right alignement, that was made default for flash_attn>=2.1. This attribute is used to handle this difference. Reference: https://github.com/Dao-AILab/flash-attention/releases/tag/v2.1.0.
         # Beware that with flash_attn<2.1, using q_seqlen != k_seqlen (except for the case q_seqlen == 1) produces a wrong mask (top-left).
         self._flash_attn_uses_top_left_mask = not is_flash_attn_greater_or_equal_2_10()
+        self.debug_info = {}
 
     def forward(
         self,
@@ -371,6 +372,7 @@ class Qwen2FlashAttention2(Qwen2Attention):
         use_cache: bool = False,
         cache_position: Optional[torch.LongTensor] = None,
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+        debug_setting: dict={},
     ):
         bsz, q_len, _ = hidden_states.size()
 
@@ -425,6 +427,28 @@ class Qwen2FlashAttention2(Qwen2Attention):
             query_states = query_states.to(target_dtype)
             key_states = key_states.to(target_dtype)
             value_states = value_states.to(target_dtype)
+
+        if "debug_attention_query_list" in debug_setting and len(debug_setting["debug_attention_query_list"]) > 0:
+            debug_attention_query_list = debug_setting["debug_attention_query_list"]
+            repeated_key_states = key_states
+            for one_query in self.debug_attention_query_list:
+                start_pos = one_query["start_pos"]
+                window_size = one_query["window_size"]
+                attn_weights = torch.matmul(query_states[..., start_pos:start_pos + window_size, :], repeated_key_states[..., :start_pos + window_size, :].transpose(2, 3)) / math.sqrt(self.head_dim)
+                # some code copied from SnapKV
+                mask = torch.full((window_size, window_size), torch.finfo(attn_weights.dtype).min, device=attn_weights.device)
+                mask_cond = torch.arange(mask.size(-1), device=attn_weights.device)
+                mask.masked_fill_(mask_cond < (mask_cond + 1).view(mask.size(-1), 1), 0)
+                mask = mask.to(attn_weights.device)
+                debug_attention_mask = mask[None, None, :, :]
+                attn_weights[:, :, -window_size:, -window_size:] += debug_attention_mask
+                # attention weights: [1, head_num, window_size, seq_len]
+                attn_scores = torch.nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+                self.debug_info["attention_query_ret_list"].append({
+                    "attn_scores": attn_scores,
+                    "start_pos": start_pos,
+                    "window_size": window_size,
+                })
 
         # Reashape to the expected shape for Flash Attention
         query_states = query_states.transpose(1, 2)
@@ -591,6 +615,7 @@ class Qwen2DecoderLayer(nn.Module):
         use_cache: Optional[bool] = False,
         cache_position: Optional[torch.LongTensor] = None,
         position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # will become mandatory in v4.46
+        debug_setting: dict={},
         **kwargs,
     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         """
@@ -629,6 +654,7 @@ class Qwen2DecoderLayer(nn.Module):
             use_cache=use_cache,
             cache_position=cache_position,
             position_embeddings=position_embeddings,
+            debug_setting=debug_setting,
         )
         hidden_states = residual + hidden_states
 
@@ -817,6 +843,7 @@ class Qwen2Model(Qwen2PreTrainedModel):
         output_hidden_states: Optional[bool] = None,
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
+        debug_setting: dict={},
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         output_attentions = output_attentions if output_attentions is not None else self.config.output_attentions
         output_hidden_states = (
@@ -901,6 +928,7 @@ class Qwen2Model(Qwen2PreTrainedModel):
                     use_cache=use_cache,
                     cache_position=cache_position,
                     position_embeddings=position_embeddings,
+                    debug_setting=debug_setting,
                 )
 
             hidden_states = layer_outputs[0]
@@ -1122,6 +1150,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
         return_dict: Optional[bool] = None,
         cache_position: Optional[torch.LongTensor] = None,
         num_logits_to_keep: int = 0,
+        debug_setting: dict={},
         **loss_kwargs,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
         r"""
@@ -1173,6 +1202,7 @@ class Qwen2ForCausalLM(Qwen2PreTrainedModel, GenerationMixin):
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
             cache_position=cache_position,
+            debug_setting=debug_setting,
         )
 
         hidden_states = outputs[0]
