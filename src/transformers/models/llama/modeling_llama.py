@@ -51,7 +51,7 @@ from ...utils import (
 )
 from .configuration_llama import LlamaConfig
 import gc
-from .fa_cross import streaming_cross_attention
+# from .fa_cross import streaming_cross_attention
 
 logger = logging.get_logger(__name__)
 
