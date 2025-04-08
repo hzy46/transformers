@@ -275,6 +275,17 @@ class Qwen2Attention(nn.Module):
 
         self.rotary_emb = Qwen2RotaryEmbedding(config=self.config)
 
+        self.debug_info = {}
+        self.tracking_attention_mask_and_multiplier = None
+
+    def set_tracking_attention_mask_and_multiplier(self, tracking_attention_mask, multiplier):
+        # tracking_attention_mask 应该是 torch.bool 类型，形状是 (seq_len, seq_len), 1 的 地方表示要 track，0 的地方表示不 track
+        # multiplier 应该是 torch.float16 类型，形状是 (head_num, )，表示这一层每一个 head 的辅助变量
+        self.tracking_attention_mask_and_multiplier = tracking_attention_mask, multiplier
+
+    def reset_tracking_attention_mask_and_multiplier(self):
+        self.tracking_attention_mask_and_multiplier = None
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -323,6 +334,22 @@ class Qwen2Attention(nn.Module):
 
         # upcast attention to fp32
         attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(query_states.dtype)
+
+
+        if self.tracking_attention_mask_and_multiplier is not None:
+            tracking_attention_mask, tracking_multiplier = self.tracking_attention_mask_and_multiplier
+            # attn_weights 是 (batch_size, head_dim, seq_len, seq_len)
+            # 变成 (1, 1, seq_len, seq_len)
+            tracking_attention_mask = tracking_attention_mask.unsqueeze(0).unsqueeze(0) 
+            # 变成 (1, 32, 1, 1)
+            tracking_multiplier = tracking_multiplier.reshape(1, tracking_multiplier.shape[0], 1, 1)
+            # mask 是 1 的话，取tracking_multiplier * attn_weights，否则，还是原来的
+            attn_weights = torch.where(tracking_attention_mask, tracking_multiplier * attn_weights, attn_weights)
+            with torch.no_grad():
+                tracking_attn_score_mean = (tracking_attention_mask * attn_weights).sum() / (attn_weights.shape[0] * tracking_attention_mask.sum())
+                self.debug_info["tracking_attn_score_mean"] = tracking_attn_score_mean.item()
+
+
         attn_weights = nn.functional.dropout(attn_weights, p=self.attention_dropout, training=self.training)
         attn_output = torch.matmul(attn_weights, value_states)
 
@@ -830,6 +857,10 @@ class Qwen2Model(Qwen2PreTrainedModel):
 
     def set_input_embeddings(self, value):
         self.embed_tokens = value
+
+    def reset_all_layer_tracking_attention_mask_and_multiplier(self):
+        for layer_idx in range(len(self.layers)):
+            self.layers[layer_idx].self_attn.reset_tracking_attention_mask_and_multiplier()
 
     @add_start_docstrings_to_model_forward(QWEN2_INPUTS_DOCSTRING)
     def forward(
