@@ -453,6 +453,9 @@ class LlamaAttention(nn.Module):
             tracking_multiplier = tracking_multiplier.reshape(1, tracking_multiplier.shape[0], 1, 1)
             # mask 是 1 的话，取tracking_multiplier * attn_weights，否则，还是原来的
             attn_weights = torch.where(tracking_attention_mask, tracking_multiplier * attn_weights, attn_weights)
+            with torch.no_grad():
+                tracking_attn_score_mean = (tracking_attention_mask * attn_weights).sum() / (tracking_attention_mask.sum() * attn_weights.shape[0] * attn_weights.shape[1])
+                self.debug_info["tracking_attn_score_mean"] = tracking_attn_score_mean.item()
 
         if len(self.tracking_logit_info_list) > 0:
             for one_info in self.tracking_logit_info_list:
